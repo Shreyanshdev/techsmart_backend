@@ -54,7 +54,8 @@ export const admin = new AdminJS({
       }
     },
     { resource: Models.Address },
-    { resource: Models.AnimalHealth }
+    { resource: Models.AnimalHealth },
+    { resource: Models.Feedback }
 
   ],
   branding: {

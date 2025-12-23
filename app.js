@@ -114,6 +114,25 @@ const start = async () => {
         name: 'milk-delivery-session', // Change default session name
     }));
 
+    // Health check endpoint for Render and other deployment platforms
+    app.get('/', (req, res) => {
+        res.status(200).json({
+            status: 'ok',
+            message: 'Lush & Pure Backend API is running',
+            timestamp: new Date().toISOString(),
+            version: '1.0.0'
+        });
+    });
+
+    // Health check endpoint (alternative path)
+    app.get('/health', (req, res) => {
+        res.status(200).json({
+            status: 'healthy',
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString()
+        });
+    });
+
     const adminRouter = buildAdminRouter();
     app.use(admin.options.rootPath, adminRouter);
 

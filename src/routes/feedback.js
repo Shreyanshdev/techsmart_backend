@@ -1,6 +1,7 @@
 import express from 'express';
 import Feedback from '../models/Feedback.js';
-import { protect, admin } from '../middleware/authMiddleware.js';
+import { verifyToken } from '../middleware/auth.js';
+import { requireAdmin } from '../middleware/roleAuth.js'; // Assuming it's named requireAdmin or similar
 
 const router = express.Router();
 
@@ -9,7 +10,7 @@ const router = express.Router();
  * @desc    Submit feedback
  * @access  Private (Customer)
  */
-router.post('/', protect, async (req, res) => {
+router.post('/', verifyToken, async (req, res) => {
     try {
         const { message, topic } = req.body;
 
@@ -35,7 +36,7 @@ router.post('/', protect, async (req, res) => {
  * @desc    Get all feedback
  * @access  Private (Admin)
  */
-router.get('/', protect, admin, async (req, res) => {
+router.get('/', verifyToken, requireAdmin, async (req, res) => {
     try {
         const feedbacks = await Feedback.find()
             .populate('user', 'name email phone')

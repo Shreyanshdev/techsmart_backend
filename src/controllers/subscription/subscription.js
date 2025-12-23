@@ -749,36 +749,22 @@ export const markDeliveryNoResponse = async (req, res) => {
       return res.status(400).json({ message: "Delivery must be in reaching status to mark as no response" });
     }
 
-    // Change status to noResponse - no concession allowed, delivery is marked as used
+    // Change status to noResponse, but treat checks as delivered
     delivery.status = "noResponse";
-    delivery.canceledAt = new Date();
-    delivery.concession = false; // No concession for no-response
+    delivery.deliveredAt = new Date();
+    delivery.confirmedAt = new Date(); // Auto-confirm
 
-    // Update individual product delivery statuses
-    if (delivery.products && delivery.products.length > 0) {
-      delivery.products.forEach(product => {
-        product.deliveryStatus = 'failed';
-      });
-      console.log(`❌ No-response delivery: ${delivery.products.length} products marked as failed`);
-    }
-
-    // Update subscription counts - this delivery is counted as used (no concession)
-    subscription.deliveredCount += 1;
-    if (subscription.remainingDeliveries > 0) {
-      subscription.remainingDeliveries -= 1;
-    } else {
-      console.warn(`⚠️ Cannot decrement subscription remainingDeliveries for no-response: already at 0 or negative (${subscription.remainingDeliveries})`);
-    }
-
-    // Update individual product delivery counts
+    // Update individual product delivery statuses to delivered (so it counts as delivered)
     if (delivery.products && delivery.products.length > 0) {
       delivery.products.forEach(deliveryProduct => {
-        // Find corresponding subscription product using unique subscriptionProductId
+        deliveryProduct.deliveryStatus = 'delivered';
+
+        // Find corresponding subscription product and update counts
         const subscriptionProduct = deliveryProduct.subscriptionProductId ?
           subscription.products.find(sp =>
             sp.subscriptionProductId === deliveryProduct.subscriptionProductId
           ) :
-          // Fallback: match by productId and other properties if subscriptionProductId is not available (legacy)
+          // Fallback
           subscription.products.find(sp =>
             sp.productId.toString() === deliveryProduct.productId.toString() &&
             sp.animalType === deliveryProduct.animalType &&
@@ -787,45 +773,61 @@ export const markDeliveryNoResponse = async (req, res) => {
           );
 
         if (subscriptionProduct) {
-          // Validate before updating counts to prevent negative values
+          // Validate and update counts
           if (subscriptionProduct.remainingDeliveries > 0) {
             subscriptionProduct.deliveredCount += 1;
             subscriptionProduct.remainingDeliveries -= 1;
-            console.log(`📦 Updated no-response product ${subscriptionProduct.productName}: deliveredCount=${subscriptionProduct.deliveredCount}, remaining=${subscriptionProduct.remainingDeliveries}`);
+            console.log(`📦 No-response (counted as delivered) for ${subscriptionProduct.productName}: deliveredCount=${subscriptionProduct.deliveredCount}, remaining=${subscriptionProduct.remainingDeliveries}`);
           } else {
-            console.warn(`⚠️ Cannot update counts for no-response ${subscriptionProduct.productName}: remainingDeliveries is already 0 or negative (${subscriptionProduct.remainingDeliveries})`);
+            console.warn(`⚠️ Cannot update counts for ${subscriptionProduct.productName}: remainingDeliveries is already 0 or negative (${subscriptionProduct.remainingDeliveries})`);
           }
         } else {
-          console.warn(`⚠️ Could not find subscription product for no-response delivery product: ${deliveryProduct.productName} (subscriptionProductId: ${deliveryProduct.subscriptionProductId})`);
+          console.warn(`⚠️ Could not find subscription product for delivery product: ${deliveryProduct.productName}`);
         }
       });
     }
 
+    // Update subscription counts
+    subscription.deliveredCount += 1;
+    if (subscription.remainingDeliveries > 0) {
+      subscription.remainingDeliveries -= 1;
+    }
+
     await subscription.save();
 
-    // Emit socket event for real-time updates
+    // Emit socket event for real-time updates - mimicking successful delivery flow
     if (req.app.get('io')) {
-      req.app.get('io').to(`customer-${subscription.customer._id}`).emit('deliveryNoResponse', {
+      const io = req.app.get('io');
+
+      io.to(`customer-${subscription.customer._id}`).emit('deliveryNoResponse', {
         subscriptionId: subscription._id,
         deliveryDate: deliveryDate,
         status: 'noResponse',
-        message: 'Delivery partner marked as no response - no concession given'
+        message: 'Delivery partner marked as no response - counted as delivered'
       });
 
-      req.app.get('io').to(`branch-${subscription.branch}`).emit('deliveryNoResponse', {
+      io.to(`branch-${subscription.branch}`).emit('deliveryNoResponse', {
         subscriptionId: subscription._id,
         deliveryDate: deliveryDate,
         status: 'noResponse'
       });
+
+      // Also emit deliveryCompleted to partner so they see it as done
+      io.to(`deliveryPartner-${deliveryPartnerId}`).emit('deliveryCompleted', {
+        subscriptionId: subscription._id,
+        deliveryDate: deliveryDate,
+        status: 'noResponse',
+        message: 'Delivery marked as no response.'
+      });
     }
 
     return res.status(200).json({
-      message: "Delivery marked as no response - no concession allowed",
+      message: "Delivery marked as no response successfully",
       delivery: {
         _id: delivery._id,
         status: delivery.status,
-        canceledAt: delivery.canceledAt,
-        concession: delivery.concession,
+        deliveredAt: delivery.deliveredAt,
+        confirmedAt: delivery.confirmedAt,
         products: delivery.products || []
       },
       subscription: {

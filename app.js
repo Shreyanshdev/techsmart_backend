@@ -40,7 +40,7 @@ const start = async () => {
     // Secure CORS configuration
     const corsOptions = {
         origin: function (origin, callback) {
-            // Allow requests with no origin (like mobile apps or curl requests)
+            // Allow requests with no origin (like mobile apps, curl, or same-origin requests)
             if (!origin) return callback(null, true);
 
             // In development, allow localhost
@@ -50,15 +50,23 @@ const start = async () => {
                 }
             }
 
-            // In production, only allow specific domains
+            // In production, allow specific domains from environment variable
             const allowedOrigins = process.env.ALLOWED_ORIGINS ?
-                process.env.ALLOWED_ORIGINS.split(',') :
-                ['https://yourdomain.com', 'https://www.yourdomain.com'];
+                process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) :
+                [];
+
+            // Always allow the Render app URL for AdminJS dashboard
+            const renderUrl = 'https://lushandpurebackend.onrender.com';
+            if (!allowedOrigins.includes(renderUrl)) {
+                allowedOrigins.push(renderUrl);
+            }
 
             if (allowedOrigins.includes(origin)) {
                 return callback(null, true);
             }
 
+            // Log blocked origin for debugging
+            console.log(`⚠️ CORS blocked origin: ${origin}`);
             return callback(new Error('Not allowed by CORS'));
         },
         credentials: true,

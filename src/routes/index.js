@@ -9,6 +9,7 @@ import subscriptionRoutes from './subscription.js';
 import branchRoutes from './branch.js';
 import deliveryManagementRoutes from './deliveryManagement.js';
 import animalHealthRoutes from './animalHealth.js';
+import feedbackRoutes from './feedback.js';
 
 const router = express.Router();
 
@@ -24,4 +25,5 @@ export const registerRoutes = (app) => {
     app.use('/api/v1/branches', branchRoutes);
     app.use('/api/v1/deliveries', deliveryManagementRoutes);
     app.use('/api/v1/animal-health', animalHealthRoutes);
+    app.use('/api/v1/feedback', feedbackRoutes);
 };

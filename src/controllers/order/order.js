@@ -145,12 +145,18 @@ export const createOrder = async (req, res) => {
 
     const savedOrder = await newOrder.save();
 
+    // Populate for socket and response
+    const populatedOrder = await Order.findById(savedOrder._id)
+      .populate('customer', 'name phone address')
+      .populate('branch', 'name address')
+      .populate('items.id', 'name price discountPrice image quantity unit');
+
     // Emit event to delivery partners in the branch
-    req.app.get('io').to(`branch-${branch}`).emit('newOrderAvailable', savedOrder);
+    req.app.get('io').to(`branch-${branch}`).emit('newOrderAvailable', populatedOrder);
 
     return res.status(201).json({
       message: "Order created successfully",
-      order: savedOrder
+      order: populatedOrder
     });
   } catch (error) {
     console.error("Create order error:", error);
@@ -382,7 +388,7 @@ export const getOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id', 'name price image')
+      .populate('items.id', 'name price discountPrice image')
       .sort({ createdAt: -1 });
 
     console.log(`Found ${orders.length} orders with filter:`, filter); // Debug log
@@ -759,7 +765,7 @@ export const getAvailableOrders = async (req, res) => {
     })
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
-      .populate('items.id', 'name price image')
+      .populate('items.id', 'name price discountPrice image')
       .sort({ createdAt: -1 });
 
     console.log(`🔍 Found ${availableOrders.length} available orders for branch: ${branchId}`);
@@ -807,7 +813,7 @@ export const getCurrentOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id', 'name price image')
+      .populate('items.id', 'name price discountPrice image')
       .sort({ createdAt: -1 });
 
     console.log(`Found ${currentOrders.length} current orders for delivery partner: ${deliveryPartnerId}`);
@@ -866,7 +872,7 @@ export const getHistoryOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id', 'name price image')
+      .populate('items.id', 'name price discountPrice image')
       .sort({ createdAt: -1 });
 
     console.log(`Found ${historyOrders.length} history orders for delivery partner: ${deliveryPartnerId}`);

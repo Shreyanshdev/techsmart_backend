@@ -13,7 +13,7 @@ const deliverySchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ["scheduled", "reaching", "delivered", "paused", "canceled", "noResponse", "concession"],
+        enum: ["scheduled", "reaching", "awaitingCustomer", "delivered", "paused", "canceled", "noResponse", "concession"],
         default: "scheduled"
     },
     // When delivery partner starts delivery (changes to reaching)

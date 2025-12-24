@@ -297,7 +297,10 @@ export const updateOrderStatus = async (req, res) => {
     } else if (order.status === 'in-progress') {
       req.app.get('io').to(order.customer.toString()).emit('orderInProgress', order);
     } else if (order.status === 'delivered') {
-      // Close socket connections when order is delivered
+      // Emit to order room
+      req.app.get('io').to(orderId).emit('orderUpdated', order);
+
+      // Close socket connections when order is delivered (with small delay)
       req.app.get('io').to(orderId).emit('orderCompleted', {
         orderId: order._id,
         status: 'delivered',
@@ -305,7 +308,9 @@ export const updateOrderStatus = async (req, res) => {
       });
 
       const orderRoom = `order-${orderId}`;
-      req.app.get('io').socketsLeave(orderRoom);
+      setTimeout(() => {
+        req.app.get('io').socketsLeave(orderRoom);
+      }, 5000);
 
       console.log(`✅ Order ${order.orderId} delivered via status update - socket connections closed`);
     } else if (order.status === 'cancelled') {
@@ -324,6 +329,8 @@ export const updateOrderStatus = async (req, res) => {
         });
       }
 
+      req.app.get('io').to(orderId).emit('orderUpdated', order);
+
       req.app.get('io').to(orderId).emit('orderCompleted', {
         orderId: order._id,
         status: 'cancelled',
@@ -331,7 +338,9 @@ export const updateOrderStatus = async (req, res) => {
       });
 
       const orderRoom = `order-${orderId}`;
-      req.app.get('io').socketsLeave(orderRoom);
+      setTimeout(() => {
+        req.app.get('io').socketsLeave(orderRoom);
+      }, 5000);
 
       console.log(`❌ Order ${order.orderId} cancelled via status update - socket connections closed`);
     }
@@ -553,16 +562,19 @@ export const confirmDeliveryReceipt = async (req, res) => {
     req.app.get('io').to(order.customer.toString()).emit('deliveryConfirmed', order);
     req.app.get('io').to(order.deliveryPartner.toString()).emit('orderStatusUpdated', order);
 
-    // Close socket connections for this order
+    // Close socket connections for this order (with delay)
+    req.app.get('io').to(orderId).emit('orderUpdated', order);
     req.app.get('io').to(orderId).emit('orderCompleted', {
       orderId: order._id,
       status: 'delivered',
       message: 'Order delivery completed successfully'
     });
 
-    // Remove clients from order-specific rooms
+    // Remove clients from order-specific rooms after delay
     const orderRoom = `order-${orderId}`;
-    req.app.get('io').socketsLeave(orderRoom);
+    setTimeout(() => {
+      req.app.get('io').socketsLeave(orderRoom);
+    }, 5000);
 
     console.log(`✅ Order ${order.orderId} delivery confirmed - socket connections closed`);
 
@@ -613,6 +625,7 @@ export const acceptOrder = async (req, res) => {
     // Emit socket event for real-time updates
     req.app.get('io').to(`branch-${order.branch}`).emit('orderAcceptedByOther', orderId);
     req.app.get('io').to(orderId).emit('orderStatusUpdated', order);
+    req.app.get('io').to(orderId).emit('orderUpdated', order);
 
     return res.status(200).json({
       message: "Order accepted successfully",
@@ -660,6 +673,7 @@ export const pickupOrder = async (req, res) => {
 
     // Emit socket event for real-time updates
     req.app.get('io').to(orderId).emit('orderStatusUpdated', order);
+    req.app.get('io').to(orderId).emit('orderUpdated', order);
     req.app.get('io').to(order.customer.toString()).emit('orderPickedUp', order);
     // Emit to branch room for delivery partner updates
     req.app.get('io').to(`branch-${order.branch}`).emit('orderPickedUp', {
@@ -722,6 +736,7 @@ export const markOrderAsDelivered = async (req, res) => {
 
     // Emit socket event for real-time updates
     req.app.get('io').to(orderId).emit('orderStatusUpdated', order);
+    req.app.get('io').to(orderId).emit('orderUpdated', order);
     req.app.get('io').to(order.customer.toString()).emit('awaitingCustomerConfirmation', order);
 
     console.log(`📦 Order ${order.orderId} marked as delivered - socket events emitted`);
@@ -939,14 +954,20 @@ export const updateDeliveryPartnerLocation = async (req, res) => {
       eta = Math.round(distance / 30 * 60); // Assuming 30 km/h average speed
     }
 
-    // Emit real-time location update to customer with enhanced data
-    req.app.get('io').to(order.customer.toString()).emit('deliveryPartnerLocationUpdate', {
+    // Emit real-time location update to customer and order room
+    const deliveryUpdate = {
       orderId: order._id,
       location: location,
       eta: eta,
       routeData: order.routeData,
       timestamp: new Date()
-    });
+    };
+
+    req.app.get('io').to(order.customer.toString()).emit('deliveryPartnerLocationUpdate', deliveryUpdate);
+    req.app.get('io').to(orderId).emit('deliveryPartnerLocationUpdate', deliveryUpdate);
+
+    // Also emit for backward compatibility/simpler tracking
+    req.app.get('io').to(orderId).emit('driverLocation', location);
 
     // Emit to branch room for other delivery partners
     req.app.get('io').to(`branch-${order.branch}`).emit('deliveryPartnerLocationUpdate', {

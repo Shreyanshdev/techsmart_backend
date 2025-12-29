@@ -10,11 +10,13 @@ import branchRoutes from './branch.js';
 import deliveryManagementRoutes from './deliveryManagement.js';
 import animalHealthRoutes from './animalHealth.js';
 import feedbackRoutes from './feedback.js';
+import adminRoutes from './adminRoutes.js';
 
 const router = express.Router();
 
 export const registerRoutes = (app) => {
     // API v1 routes with proper prefixes
+    app.use('/api/v1/admin', adminRoutes);
     app.use('/api/v1/auth', authRoutes);
     app.use('/api/v1/addresses', addressRoutes);
     app.use('/api/v1/orders', orderRoutes);

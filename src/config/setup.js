@@ -1,4 +1,4 @@
-import AdminJS from "adminjs";
+import AdminJS, { ValidationError } from "adminjs";
 import AdminJSExpress from "@adminjs/express";
 import *  as AdminJSMongoose from "@adminjs/mongoose";
 import * as Models from "../models/index.js";
@@ -6,6 +6,7 @@ import { COOKIE_SECRET, sessionStore } from "./config.js";
 import { dark, light, noSidebar } from "@adminjs/themes";
 import { Admin } from "../models/user.js";
 import { componentLoader, Components } from "./component-loader.js";
+import bcrypt from "bcrypt";
 
 AdminJS.registerAdapter(AdminJSMongoose);
 
@@ -63,6 +64,27 @@ const baseSubscriptionOptions = {
 };
 
 
+// Password validation for AdminJS
+const passwordValidationRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
+
+const passwordValidationHook = async (request, context) => {
+  const { payload } = request;
+  if (payload && payload.password) {
+    // Skip validation if password is already hashed
+    if (payload.password.startsWith('$2b$') || payload.password.startsWith('$2a$')) {
+      return request;
+    }
+    if (!passwordValidationRegex.test(payload.password)) {
+      throw new ValidationError({
+        password: {
+          message: 'Password must be at least 8 characters with at least one uppercase letter, one lowercase letter, and one number',
+        },
+      });
+    }
+  }
+  return request;
+};
+
 export const admin = new AdminJS({
   resources: [
     {
@@ -75,15 +97,31 @@ export const admin = new AdminJS({
     {
       resource: Models.DeliveryPartner,
       options: {
-        listProperties: ['email', 'role', 'isActivated'],
-        filterProperties: ['email', 'role']
+        listProperties: ['email', 'name', 'phone', 'role', 'isActivated'],
+        filterProperties: ['email', 'role'],
+        actions: {
+          new: {
+            before: [passwordValidationHook]
+          },
+          edit: {
+            before: [passwordValidationHook]
+          }
+        }
       }
     },
     {
       resource: Models.Admin,
       options: {
         listProperties: ['email', 'role', 'isActivated'],
-        filterProperties: ['email', 'role']
+        filterProperties: ['email', 'role'],
+        actions: {
+          new: {
+            before: [passwordValidationHook]
+          },
+          edit: {
+            before: [passwordValidationHook]
+          }
+        }
       }
     },
     { resource: Models.Branch },
@@ -308,7 +346,13 @@ export const buildAdminRouter = () => {
     authenticate: async (email, password) => {
       const user = await Admin.findOne({ email });
       if (!user) return false;
+      // Use bcrypt.compare for hashed passwords
+      const isValid = await bcrypt.compare(password, user.password);
+      if (isValid) return user;
+
+      // Fallback for plaintext passwords (legacy)
       if (user.password === password) return user;
+
       return false;
     },
     cookiePassword: COOKIE_SECRET,

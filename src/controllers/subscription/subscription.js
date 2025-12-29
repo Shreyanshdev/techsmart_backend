@@ -141,12 +141,11 @@ export const getSubscriptionByCustomer = async (req, res) => {
     }
 
     const subscription = await Subscription.findOne({
-      customer: customerId,
-      status: { $in: ["active", "paused"] }
-    }).populate("deliveryAddress").populate("deliveryPartner.partner");
+      customer: customerId
+    }).sort({ createdAt: -1 }).populate("deliveryAddress").populate("deliveryPartner.partner");
 
     if (!subscription) {
-      return res.status(404).json({ message: "No active subscription found for this customer" });
+      return res.status(404).json({ message: "No subscription found for this customer" });
     }
 
     console.log('Fetched subscription deliveries:', subscription.deliveries);

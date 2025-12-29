@@ -135,10 +135,10 @@ deliveryPartnerSchema.pre('save', async function (next) {
         // Update passwordChangedAt timestamp
         this.passwordChangedAt = new Date();
 
-        console.log('✅ Password hashed successfully for delivery partner:', this.email);
+        console.log('✅ Password hashed successfully (HOOK: save) for delivery partner:', this.email);
         next();
     } catch (error) {
-        console.error('❌ Error hashing password:', error);
+        console.error('❌ Error hashing password (HOOK: save):', error);
         next(error);
     }
 });
@@ -171,10 +171,10 @@ deliveryPartnerSchema.pre('findOneAndUpdate', async function (next) {
                 update.passwordChangedAt = new Date();
             }
 
-            console.log('✅ Password hashed successfully in update operation');
+            console.log('✅ Password hashed successfully (HOOK: findOneAndUpdate) in update operation');
             next();
         } catch (error) {
-            console.error('❌ Error hashing password in update:', error);
+            console.error('❌ Error hashing password (HOOK: findOneAndUpdate):', error);
             next(error);
         }
     } else {
@@ -206,10 +206,10 @@ deliveryPartnerSchema.pre('updateOne', async function (next) {
                 update.passwordChangedAt = new Date();
             }
 
-            console.log('✅ Password hashed successfully in updateOne operation');
+            console.log('✅ Password hashed successfully (HOOK: updateOne) in updateOne operation');
             next();
         } catch (error) {
-            console.error('❌ Error hashing password in updateOne:', error);
+            console.error('❌ Error hashing password (HOOK: updateOne):', error);
             next(error);
         }
     } else {
@@ -251,11 +251,66 @@ adminSchema.pre('save', async function (next) {
         const salt = await bcrypt.genSalt(10);
         this.password = await bcrypt.hash(this.password, salt);
 
-        console.log('✅ Admin password hashed successfully for:', this.email);
+        console.log('✅ Admin password hashed successfully (HOOK: save) for:', this.email);
         next();
     } catch (error) {
-        console.error('❌ Error hashing admin password:', error);
+        console.error('❌ Error hashing admin password (HOOK: save):', error);
         next(error);
+    }
+});
+
+// Pre-update hook to hash admin password before updating
+adminSchema.pre('findOneAndUpdate', async function (next) {
+    const update = this.getUpdate();
+    if (update.password || (update.$set && update.$set.password)) {
+        const password = update.password || update.$set.password;
+        if (password.startsWith('$2b$') || password.startsWith('$2a$')) {
+            console.log('Admin password already hashed in update, skipping hash operation');
+            return next();
+        }
+        try {
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(password, salt);
+            if (update.$set) {
+                update.$set.password = hashedPassword;
+            } else {
+                update.password = hashedPassword;
+            }
+            console.log('✅ Admin password hashed successfully (HOOK: findOneAndUpdate) in update operation');
+            next();
+        } catch (error) {
+            console.error('❌ Error hashing admin password (HOOK: findOneAndUpdate):', error);
+            next(error);
+        }
+    } else {
+        next();
+    }
+});
+
+adminSchema.pre('updateOne', async function (next) {
+    const update = this.getUpdate();
+    if (update.password || (update.$set && update.$set.password)) {
+        const password = update.password || update.$set.password;
+        if (password.startsWith('$2b$') || password.startsWith('$2a$')) {
+            console.log('Admin password already hashed in updateOne, skipping hash operation');
+            return next();
+        }
+        try {
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(password, salt);
+            if (update.$set) {
+                update.$set.password = hashedPassword;
+            } else {
+                update.password = hashedPassword;
+            }
+            console.log('✅ Admin password hashed successfully (HOOK: updateOne) in updateOne operation');
+            next();
+        } catch (error) {
+            console.error('❌ Error hashing admin password (HOOK: updateOne):', error);
+            next(error);
+        }
+    } else {
+        next();
     }
 });
 

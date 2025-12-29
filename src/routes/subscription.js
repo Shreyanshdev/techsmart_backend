@@ -34,6 +34,7 @@ import {
   geocodeSubscriptionAddress,
   getSubscriptionDeliveryHistory,
   addProductToExistingSubscription,
+  rescheduleSubscriptionItem,
 } from "../controllers/subscription/subscription.js";
 
 import { verifyToken } from "../middleware/auth.js";
@@ -62,6 +63,7 @@ router.get("/:id/invoice", requireCustomer, getSubscriptionInvoice);
 
 router.get("/available-reschedule-dates", requireCustomer, getAvailableRescheduleDates);
 router.put("/:id", requireCustomer, updateSubscription);
+router.post("/:id/reschedule-item", requireCustomer, rescheduleSubscriptionItem);
 router.delete("/:id", requireCustomer, deleteSubscription);
 router.delete("/:id/force", requireCustomer, forceDeleteSubscription);
 

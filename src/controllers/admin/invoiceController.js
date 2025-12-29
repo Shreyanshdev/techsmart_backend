@@ -17,6 +17,24 @@ const formatDate = (date) => {
   });
 };
 
+const calculateSessionYear = (dateInput) => {
+  const date = new Date(dateInput);
+  const year = date.getFullYear();
+  const month = date.getMonth(); // 0 = Jan, 3 = April
+
+  // Fiscal year starts April 1st
+  let startYear = year;
+  let endYear = year + 1;
+
+  if (month < 3) {
+    startYear = year - 1;
+    endYear = year;
+  }
+
+  // Format: 24-25
+  return `${startYear.toString().slice(-2)}-${endYear.toString().slice(-2)}`;
+};
+
 const numberToWords = (num) => {
   const a = ['', 'One ', 'Two ', 'Three ', 'Four ', 'Five ', 'Six ', 'Seven ', 'Eight ', 'Nine ', 'Ten ', 'Eleven ', 'Twelve ', 'Thirteen ', 'Fourteen ', 'Fifteen ', 'Sixteen ', 'Seventeen ', 'Eighteen ', 'Nineteen '];
   const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
@@ -126,9 +144,8 @@ const generateFormalInvoiceHTML = (data) => {
                             <td style="border-bottom: 1px solid #000; border-right: 1px solid #000;">Invoice No.<br/><span class="bold">${data.invoiceNo}</span></td>
                             <td style="border-bottom: 1px solid #000;">Dated<br/><span class="bold">${formatDate(data.date)}</span></td>
                         </tr>
-                        <tr>
                             <td style="border-bottom: 1px solid #000; border-right: 1px solid #000;">Delivery Note<br/>&nbsp;</td>
-                            <td style="border-bottom: 1px solid #000;">Mode/Terms of Payment<br/>${data.paymentMethod || (data.isSubscription ? 'Subscription' : 'Immediate')}</td>
+                            <td style="border-bottom: 1px solid #000;">Mode/Terms of Payment<br/>${data.isSubscription ? `Subscription - ${data.paymentMethod || 'Online'}` : (data.paymentMethod || 'Immediate')}</td>
                         </tr>
                         <tr>
                             <td style="border-right: 1px solid #000;">Reference No. & Date.<br/>&nbsp;</td>
@@ -166,10 +183,15 @@ const generateFormalInvoiceHTML = (data) => {
                     <th style="width: 30px;">Sl No</th>
                     <th>Description of Goods</th>
                     <th style="width: 60px;">HSN/SAC</th>
-                    <th style="width: 70px;">${data.isSubscription ? 'Quantity' : 'Count'}</th>
+                    ${data.isSubscription ? `
+                    <th style="width: 70px;">Packet Size</th>
+                    <th style="width: 40px;">Qty/Del</th>
+                    <th style="width: 40px;">Total Del</th>
+                    ` : `
+                    <th style="width: 70px;">Count</th>
+                    `}
                     <th style="width: 80px;">Rate</th>
-                    ${data.isSubscription ? '<th style="width: 40px;">per</th>' : ''}
-                    <th style="width: 40px;">Disc %</th>
+                    ${!data.isSubscription ? '<th style="width: 40px;">Disc %</th>' : ''}
                     <th style="width: 80px;">Amount</th>
                 </tr>
             </thead>
@@ -179,10 +201,15 @@ const generateFormalInvoiceHTML = (data) => {
                         <td class="center">${index + 1}</td>
                         <td><span class="bold">${item.name}</span><br/>${item.description || ''}</td>
                         <td class="center">${item.hsn || ''}</td>
-                        <td class="center bold">${data.isSubscription ? `${item.quantity.toFixed(2)} ${item.unit}` : item.quantity}</td>
+                        ${data.isSubscription ? `
+                        <td class="center">${item.packetSize}</td>
+                        <td class="center">${item.qtyPerDelivery}</td>
+                        <td class="center">${item.totalDeliveries}</td>
+                        ` : `
+                        <td class="center bold">${item.quantity}</td>
+                        `}
                         <td class="center">${item.rate.toFixed(2)}</td>
-                         ${data.isSubscription ? `<td class="center">${item.unit}</td>` : ''}
-                        <td class="center">${item.discount ? item.discount + '%' : ''}</td>
+                        ${!data.isSubscription ? `<td class="center">${item.discount ? item.discount + '%' : 'N/A'}</td>` : ''}
                         <td class="right bold">${formatCurrency(item.amount)}</td>
                     </tr>
                 `).join('')}
@@ -190,8 +217,8 @@ const generateFormalInvoiceHTML = (data) => {
                 
                 <!-- Summary/Totals Section -->
                  <tr>
-                    <td colspan="4" class="right bold">Total ${data.isSubscription ? 'Quantity' : 'Count'}: ${data.isSubscription ? data.items.reduce((s, i) => s + i.quantity, 0).toFixed(2) : data.items.reduce((s, i) => s + i.quantity, 0)}</td>
-                    <td colspan="${data.isSubscription ? 3 : 2}" class="right">Taxable Value</td>
+                    <td colspan="${data.isSubscription ? 6 : 4}" class="right bold">Total ${data.isSubscription ? 'Deliveries' : 'Count'}: ${data.isSubscription ? data.items.reduce((s, i) => s + i.totalDeliveries, 0) : data.items.reduce((s, i) => s + i.quantity, 0)}</td>
+                    <td colspan="${data.isSubscription ? 1 : 2}" class="right">Taxable Value</td>
                     <td class="right">${formatCurrency(data.taxInfo.taxableValue)}</td>
                 </tr>
                 <tr>
@@ -342,8 +369,11 @@ export const getAdminOrderInvoice = async (req, res) => {
       cgstAmount: cgstAmount,
     };
 
+    const sessionYear = calculateSessionYear(order.createdAt || new Date());
+    const orderIdSuffix = order.orderId || (order._id ? order._id.slice(-6).toUpperCase() : '000');
+
     const invoiceData = {
-      invoiceNo: `INV-${order.orderId || (order._id ? order._id.slice(-6).toUpperCase() : '000')}`,
+      invoiceNo: `LP/${sessionYear}/${orderIdSuffix}`,
       date: order.createdAt || new Date(),
       sellerName: "Lushpure Ruralfields Private Limited",
       sellerAddress: "Kasera Raya Mant Road, MATHURA, Uttar Pradesh - 281202",
@@ -387,26 +417,23 @@ export const getAdminSubscriptionInvoice = async (req, res) => {
     // Map Subscription Products
     const items = products.map((p) => {
       const totalDeliveries = p.totalDeliveries || subscription.totalDeliveries || 0;
-      const qtyPerDelivery = p.quantityValue || 0;
-      const unit = p.quantityUnit || 'Unit';
-      const totalQty = qtyPerDelivery * totalDeliveries;
+      const count = p.count || 1;
+      const quantityValue = p.quantityValue || 0;
+      const quantityUnit = p.quantityUnit || 'Unit';
 
-      let displayQty = totalQty;
-      let displayUnit = unit;
-      if (unit.toLowerCase() === 'ml') {
-        displayQty = totalQty / 1000;
-        displayUnit = 'Ltr';
-      }
+      const startMonth = new Date(subscription.startDate).toLocaleString('default', { month: 'short', year: 'numeric' });
+      const endMonth = new Date(subscription.endDate).toLocaleString('default', { month: 'short', year: 'numeric' });
+      const dateRange = startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`;
 
       const totalPrice = p.monthlyPrice || (p.unitPrice * totalDeliveries);
-      const rate = displayQty > 0 ? (totalPrice / displayQty) : 0;
 
       return {
         name: p.productName,
-        description: `Month of ${new Date(subscription.startDate).toLocaleString('default', { month: 'short', year: 'numeric' })}\n(${p.deliveryFrequency} - ${totalDeliveries} Deliveries)`,
-        quantity: displayQty,
-        unit: displayUnit,
-        rate: rate,
+        description: `${dateRange}\n(${p.deliveryFrequency})`,
+        packetSize: `${quantityValue} ${quantityUnit}`,
+        qtyPerDelivery: count,
+        totalDeliveries: totalDeliveries,
+        rate: p.unitPrice,
         amount: totalPrice,
         discount: 0,
         hsn: '0401'
@@ -431,8 +458,11 @@ export const getAdminSubscriptionInvoice = async (req, res) => {
       cgstAmount: cgstAmount
     };
 
+    const sessionYear = calculateSessionYear(subscription.startDate);
+    const subIdSuffix = subscription.subscriptionId || (subscription._id ? subscription._id.slice(-6).toUpperCase() : '000');
+
     const invoiceData = {
-      invoiceNo: `SUB-${subscription.subscriptionId || (subscription._id ? subscription._id.slice(-6).toUpperCase() : '000')}`,
+      invoiceNo: `LP/${sessionYear}/${subIdSuffix}`,
       date: subscription.startDate,
       sellerName: "Lushpure Ruralfields Private Limited",
       sellerAddress: "Kasera Raya Mant Road, MATHURA, Uttar Pradesh - 281202",
@@ -451,7 +481,7 @@ export const getAdminSubscriptionInvoice = async (req, res) => {
       taxInfo: taxInfo,
       isSubscription: true,
       subscriptionPeriod: `${new Date(subscription.startDate).toLocaleDateString()} to ${new Date(subscription.endDate).toLocaleDateString()}`,
-      paymentMethod: subscription.paymentMethod
+      paymentMethod: subscription.paymentDetails?.paymentMethod
     };
 
     const html = generateFormalInvoiceHTML(invoiceData);

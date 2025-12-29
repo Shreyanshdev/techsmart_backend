@@ -789,7 +789,7 @@ export const getAvailableOrders = async (req, res) => {
     })
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
-      .populate('items.id', 'name price discountPrice image')
+      .populate('items.id') // Populate full product details
       .sort({ createdAt: -1 });
 
     console.log(`🔍 Found ${availableOrders.length} available orders for branch: ${branchId}`);
@@ -837,7 +837,7 @@ export const getCurrentOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id', 'name price discountPrice image')
+      .populate('items.id') // Populate full product details
       .sort({ createdAt: -1 });
 
     console.log(`Found ${currentOrders.length} current orders for delivery partner: ${deliveryPartnerId}`);
@@ -896,7 +896,7 @@ export const getHistoryOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id', 'name price discountPrice image')
+      .populate('items.id') // Populate full product details
       .sort({ createdAt: -1 });
 
     console.log(`Found ${historyOrders.length} history orders for delivery partner: ${deliveryPartnerId}`);

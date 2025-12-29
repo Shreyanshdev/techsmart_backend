@@ -82,7 +82,6 @@ export const createSubscriptionOrder = async (req, res) => {
 export const getSubscription = async (req, res) => {
   try {
 
-
     // Check if an ID parameter is provided
     if (!req.params.id) {
       console.log('🔍 No ID parameter provided, returning all subscriptions');
@@ -2736,7 +2735,7 @@ export const getSubscriptionsByCurrentCustomer = async (req, res) => {
 // Get available dates for delivery rescheduling (within 60 days or extended)
 export const getAvailableRescheduleDates = async (req, res) => {
   try {
-    const { subscriptionId, deliveryDate, slot } = req.query;
+    const { subscriptionId, deliveryDate, slot, subscriptionProductId } = req.query;
     // consecutiveDays defaults to 1 if not provided (Single Reschedule)
     const consecutiveDays = parseInt(req.query.consecutiveDays) || 1;
 
@@ -2760,7 +2759,7 @@ export const getAvailableRescheduleDates = async (req, res) => {
     const originalYMD = toYMD(new Date(deliveryDate));
     const availableDates = [];
 
-    // Find the LAST scheduled delivery date
+    // Find the LAST scheduled delivery date or End Date
     let lastDeliveryDate = new Date(subscription.endDate); // Default end
     if (subscription.deliveries && subscription.deliveries.length > 0) {
       const sortedDeliveries = [...subscription.deliveries].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -2776,8 +2775,6 @@ export const getAvailableRescheduleDates = async (req, res) => {
     const todayUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
 
     // End: lastDeliveryDate + 15 days
-    // lastDeliveryDate is derived from deliveries, assumption: they are UTC ISOs.
-    // If not, we might need normalizing. But usually they are.
     const searchEndDate = new Date(lastDeliveryDate);
     searchEndDate.setUTCDate(searchEndDate.getUTCDate() + 15);
     searchEndDate.setUTCHours(0, 0, 0, 0);
@@ -2789,39 +2786,25 @@ export const getAvailableRescheduleDates = async (req, res) => {
     // Pre-calculate busy dates map for O(1) lookup
     // Map: 'YYYY-MM-DD' -> count (number of deliveries on that day)
     const busyCounts = {};
+    const productBusyDates = new Set(); // For specific product tracking
+
     subscription.deliveries.forEach(d => {
       if (['scheduled', 'reaching', 'awaitingCustomer'].includes(d.status)) {
         const dYMD = toYMD(new Date(d.date));
         busyCounts[dYMD] = (busyCounts[dYMD] || 0) + 1;
+
+        // Track specific product presence
+        if (subscriptionProductId && d.products) {
+          const hasProduct = d.products.some(p => p.subscriptionProductId === subscriptionProductId);
+          if (hasProduct) {
+            productBusyDates.add(dYMD);
+          }
+        }
       }
     });
 
     // "Un-count" the delivery being moved from its original date
-    // This makes the original date potentially available if it was only busy by this delivery
-    // FIX: If we are moving multiple days, we should un-count ALL OF THEM?
-    // User scenario: "suppose i am selecting 10 for reschedule".
-    // If consecutiveDays > 1, they are rescheduling 10, 11, ... 
-    // They are moving the BLOCK. So the entire block's original slots become free.
-    // If we only uncount 10, 11 remains busy.
-    // If we want to move 10+11 -> 11+12.
-    // 10 becomes free. 11 becomes free (from old delivery) but potentially taken (by new delivery).
-    // If we check "is 11 free?", busyCounts[11] is 1 (old delivery).
-    // If we don't uncount 11, we can't place new block starting at 10 (needs 10, 11 free). 
-    // Wait, if start at 10: 10 is free (uncounted), 11 is busy (not uncounted). So Block 10 fail.
-    // If start at 11: 11 is busy. Block 11 fail.
-    // If start at 12: 12 free, 13 free. Block 12 success.
-
-    // To support "Moving existing block to overlapping dates", we MUST uncount all deliveries being moved.
-    // We assume the user is moving deliveries starting from `originalYMD` for `consecutiveDays`.
-    // We should find the deliveries that match this range and uncount them.
-
-    // Let's refine uncount logic:
-    // Identify what dates are currently occupied by the deliveries we are rescheduling.
-    // We iterate from originalYMD for consecutiveDays.
-    // BUT we need to match them to actual deliveries.
-    // If there is no delivery on 11th, we don't uncount 11th.
-    // We should look at busyCounts for the expected old dates.
-
+    // If filtering by product, we un-count only if that product is on that day
     for (let i = 0; i < consecutiveDays; i++) {
       const oldDate = new Date(deliveryDate);
       oldDate.setDate(oldDate.getDate() + i);
@@ -2829,6 +2812,9 @@ export const getAvailableRescheduleDates = async (req, res) => {
 
       if (busyCounts[oldYMD]) {
         busyCounts[oldYMD]--;
+      }
+      if (productBusyDates.has(oldYMD)) {
+        productBusyDates.delete(oldYMD); // Assume we are moving it out
       }
     }
 
@@ -2845,14 +2831,22 @@ export const getAvailableRescheduleDates = async (req, res) => {
         const blockDate = new Date(iterator);
         blockDate.setUTCDate(blockDate.getUTCDate() + i);
 
-        // Check bounds (optional, but good practice if block extends beyond searchEndDate)
-        // User requirement: "start dates must only include dates from which N consecutive days are free"
-
         const blockYMD = toYMD(blockDate);
-        if ((busyCounts[blockYMD] || 0) > 0) {
-          // console.log(`[DEBUG] Block Check Fail: Start ${checkYMD}, BlockDate ${blockYMD} is busy.`);
-          isBlockFree = false;
-          break;
+
+        if (subscriptionProductId) {
+          // Item-specific mode: Date is available if THIS PRODUCT is not already there
+          // ignoring general busy-ness (unless we want to enforce max 1 delivery per day per sub? 
+          // User requirement imply we can have multi-product deliveries, so general busy-ness is NOT a blocker).
+          if (productBusyDates.has(blockYMD)) {
+            isBlockFree = false;
+            break;
+          }
+        } else {
+          // Legacy mode: Date is available if NO delivery exists (full day reschedule)
+          if ((busyCounts[blockYMD] || 0) > 0) {
+            isBlockFree = false;
+            break;
+          }
         }
       }
 
@@ -2894,6 +2888,7 @@ export const getAvailableRescheduleDates = async (req, res) => {
     });
   }
 };
+
 
 /**
  * Add product to existing subscription (requires payment verification)
@@ -3668,5 +3663,118 @@ export const geocodeSubscriptionAddress = async (req, res) => {
       timestamp: new Date().toISOString(),
       note: 'Address geocoding failed - using approximate location based on city/state'
     });
+  }
+};
+
+// Reschedule a specific product within a subscription
+export const rescheduleSubscriptionItem = async (req, res) => {
+  try {
+    const { id: subscriptionId } = req.params;
+    const { subscriptionProductId, currentDate, newDate } = req.body;
+
+    if (!subscriptionId || !subscriptionProductId || !currentDate || !newDate) {
+      return res.status(400).json({ message: "Subscription ID, product ID, current date, and new date are required" });
+    }
+
+    const subscription = await Subscription.findById(subscriptionId);
+    if (!subscription) {
+      return res.status(404).json({ message: "Subscription not found" });
+    }
+
+    // Normalize dates
+    const currentD = new Date(currentDate);
+    const newD = new Date(newDate);
+
+    // Find source delivery
+    const sourceDeliveryIndex = subscription.deliveries.findIndex(d =>
+      new Date(d.date).toDateString() === currentD.toDateString()
+    );
+
+    if (sourceDeliveryIndex === -1) {
+      return res.status(404).json({ message: "Source delivery not found" });
+    }
+
+    const sourceDelivery = subscription.deliveries[sourceDeliveryIndex];
+
+    // Find product in source delivery
+    // Note: subscriptionProductId is unique string ID
+    const productIndex = sourceDelivery.products.findIndex(p =>
+      p.subscriptionProductId === subscriptionProductId
+    );
+
+    if (productIndex === -1) {
+      return res.status(404).json({ message: "Product not found in source delivery" });
+    }
+
+    const productToMove = sourceDelivery.products[productIndex];
+
+    // Remove product from source
+    sourceDelivery.products.splice(productIndex, 1);
+
+    // If source delivery is now empty, handling logic
+    if (sourceDelivery.products.length === 0) {
+      if (sourceDelivery.status === 'scheduled') {
+        sourceDelivery.status = 'canceled';
+        sourceDelivery.canceledAt = new Date();
+      }
+    }
+
+    // Find or create target delivery
+    let targetDelivery = subscription.deliveries.find(d =>
+      new Date(d.date).toDateString() === newD.toDateString()
+    );
+
+    if (targetDelivery) {
+      // Check if product already exists in target (prevent duplicates)
+      const exists = targetDelivery.products.some(p => p.subscriptionProductId === subscriptionProductId);
+      if (exists) {
+        return res.status(400).json({ message: "Product already scheduled for this date" });
+      }
+
+      // Add to target
+      targetDelivery.products.push(productToMove);
+
+      // Reactivate target if it was canceled
+      if (['canceled', 'skipped', 'noResponse'].includes(targetDelivery.status)) {
+        targetDelivery.status = 'scheduled';
+        targetDelivery.canceledAt = undefined;
+      }
+    } else {
+      // Create new delivery
+      const cutoffTime = new Date(newD);
+      if (subscription.slot === 'morning') {
+        cutoffTime.setHours(4, 0, 0, 0);
+      } else {
+        cutoffTime.setHours(16, 0, 0, 0);
+      }
+
+      subscription.deliveries.push({
+        date: newD,
+        slot: subscription.slot,
+        status: 'scheduled',
+        cutoffTime: cutoffTime,
+        products: [productToMove],
+        deliveryPartnerId: sourceDelivery.deliveryPartnerId
+      });
+
+      // Sort deliveries
+      subscription.deliveries.sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+
+    // Extend subscription end date if needed
+    if (newD > subscription.endDate) {
+      subscription.endDate = newD;
+    }
+
+    await subscription.save();
+
+    return res.status(200).json({
+      message: "Item rescheduled successfully",
+      subscription
+    });
+
+  } catch (error) {
+    console.error("Reschedule item error:", error);
+    return res.status(500).json({ message: error.message });
   }
 };

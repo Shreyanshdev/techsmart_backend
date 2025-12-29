@@ -182,6 +182,9 @@ export const admin = new AdminJS({
       }
     },
     {
+      resource: Models.Tax,
+    },
+    {
       resource: Models.Order,
       options: {
         ...baseOrderOptions,
@@ -315,7 +318,15 @@ export const admin = new AdminJS({
     { resource: Models.Counter },
     { resource: Models.Address },
     { resource: Models.AnimalHealth },
-    { resource: Models.Feedback }
+    { resource: Models.Feedback },
+    {
+      resource: Models.Tax,
+      options: {
+        listProperties: ['sgst', 'cgst', 'isActive', 'updatedAt'],
+        filterProperties: ['isActive'],
+        navigation: { name: 'Settings', icon: 'Settings' }
+      }
+    }
   ],
   branding: {
     companyName: "Lush & Pures",

@@ -218,6 +218,14 @@ const subscriptionSchema = new mongoose.Schema({
         type: Number,
         required: true,
     },
+    sgst: {
+        type: Number,
+        default: 0,
+    },
+    cgst: {
+        type: Number,
+        default: 0,
+    },
     status: {
         type: String,
         enum: ["active", "pending", "cancelled", "expired"],

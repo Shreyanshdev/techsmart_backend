@@ -2,6 +2,7 @@ import { Customer, DeliveryPartner } from "../../models/user.js";
 import Branch from "../../models/branch.js";
 import Order from "../../models/order.js";
 import Address from "../../models/address.js";
+import Tax from "../../models/tax.js";
 import { googleMapsService } from '../../services/googleMapsService.js';
 import {
   validateObjectId,
@@ -142,6 +143,14 @@ export const createOrder = async (req, res) => {
         address: "Not assigned", // <-- NOT empty string
       },
     });
+
+    // --- Fetch and Calculate Tax Details ---
+    const activeTax = await Tax.findOne({ isActive: true }).sort({ createdAt: -1 });
+    if (activeTax) {
+      const taxableBase = (totalPrice - deliveryFee) / (1 + (activeTax.sgst + activeTax.cgst) / 100);
+      newOrder.sgst = Number((taxableBase * (activeTax.sgst / 100)).toFixed(2));
+      newOrder.cgst = Number((taxableBase * (activeTax.cgst / 100)).toFixed(2));
+    }
 
     const savedOrder = await newOrder.save();
 

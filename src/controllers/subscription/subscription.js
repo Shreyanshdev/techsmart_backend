@@ -1,6 +1,7 @@
 import Subscription, { generateSubscriptionProductId } from "../../models/subscription.js";
 import razorpay from '../../config/razorpay.js';
 import { Customer, DeliveryPartner } from "../../models/user.js";
+import Tax from "../../models/tax.js";
 import Address from "../../models/address.js";
 import Branch from "../../models/branch.js";
 import Product from "../../models/product.js";
@@ -2558,6 +2559,16 @@ export const createEnhancedSubscription = async (req, res) => {
       paymentStatus: "pending"
     });
 
+    // --- Fetch and Calculate Tax Details ---
+    const activeTax = await Tax.findOne({ isActive: true }).sort({ createdAt: -1 });
+    if (activeTax) {
+      const sgstAmount = Number((subscription.bill * (activeTax.sgst / 100)).toFixed(2));
+      const cgstAmount = Number((subscription.bill * (activeTax.cgst / 100)).toFixed(2));
+      subscription.sgst = sgstAmount;
+      subscription.cgst = cgstAmount;
+      subscription.bill = Number((subscription.bill + sgstAmount + cgstAmount).toFixed(2));
+    }
+
     // Save subscription first to get _id values for products
     await subscription.save();
 
@@ -2920,6 +2931,9 @@ export const addProductToExistingSubscription = async (req, res) => {
     } = req.body;
     const customerId = req.user._id;
 
+    // Fetch active tax rates at the start
+    const activeTax = await Tax.findOne({ isActive: true }).sort({ createdAt: -1 });
+
     console.log('🔍 addProductToExistingSubscription called with:', {
       subscriptionId,
       productId,
@@ -3087,6 +3101,15 @@ export const addProductToExistingSubscription = async (req, res) => {
     subscription.price = totalMonthlyPrice;
     subscription.bill = totalMonthlyPrice;
 
+    // Recalculate taxes for the new total bill
+    if (activeTax) {
+      const sgstAmount = Number((subscription.bill * (activeTax.sgst / 100)).toFixed(2));
+      const cgstAmount = Number((subscription.bill * (activeTax.cgst / 100)).toFixed(2));
+      subscription.sgst = sgstAmount;
+      subscription.cgst = cgstAmount;
+      subscription.bill = Number((subscription.bill + sgstAmount + cgstAmount).toFixed(2));
+    }
+
     console.log('🔍 Smart scheduling:', {
       selectedDate: selectedDate.toISOString(),
       isToday,
@@ -3170,7 +3193,9 @@ export const addProductToExistingSubscription = async (req, res) => {
           },
           $set: {
             price: totalMonthlyPrice,
-            bill: totalMonthlyPrice,
+            bill: subscription.bill, // Use the updated bill with taxes
+            sgst: subscription.sgst,
+            cgst: subscription.cgst,
             deliveries: synchronizedDeliveries,
             totalDeliveries: synchronizedDeliveries.length,
             remainingDeliveries: synchronizedDeliveries.filter(d => d.status === 'scheduled').length
@@ -3205,7 +3230,9 @@ export const addProductToExistingSubscription = async (req, res) => {
               freshSubscription.products.push(newProduct);
               freshSubscription.productPaymentHistory.push(paymentRecord); // Also add payment history
               freshSubscription.price = totalMonthlyPrice;
-              freshSubscription.bill = totalMonthlyPrice;
+              freshSubscription.bill = subscription.bill; // Sync with previously calculated bill
+              freshSubscription.sgst = subscription.sgst;
+              freshSubscription.cgst = subscription.cgst;
               freshSubscription.deliveries = synchronizedDeliveries;
               freshSubscription.totalDeliveries = synchronizedDeliveries.length;
               freshSubscription.remainingDeliveries = synchronizedDeliveries.filter(d => d.status === 'scheduled').length;

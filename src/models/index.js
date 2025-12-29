@@ -8,6 +8,7 @@ import Subscription from "./subscription.js";
 import Address from "./address.js";
 import AnimalHealth from "./animalHealth.js";
 import Feedback from "./Feedback.js";
+import Tax from "./tax.js";
 
 export {
     Customer,
@@ -21,5 +22,6 @@ export {
     Subscription,
     Address,
     AnimalHealth,
-    Feedback
+    Feedback,
+    Tax
 };

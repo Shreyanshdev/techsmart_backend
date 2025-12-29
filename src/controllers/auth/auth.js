@@ -99,9 +99,7 @@ export const loginCustomer = async (req, res) => {
             });
         }
 
-        // Send OTP via Message Central
-        // Note: For testing/development without valid credentials, this might fail unless mocked
-        // START OTP FLOW
+
         try {
             const result = await otpService.sendOtp(phone);
 

@@ -185,6 +185,14 @@ export const admin = new AdminJS({
       resource: Models.Tax,
     },
     {
+      resource: Models.Subscription,
+      options: {
+        ...baseSubscriptionOptions,
+        id: '1_AllSubscriptions',
+        navigation: { name: 'Subscription Manager', icon: 'Calendar' },
+      }
+    },
+    {
       resource: Models.Order,
       options: {
         ...baseOrderOptions,
@@ -199,7 +207,10 @@ export const admin = new AdminJS({
             }
           },
           new: { isVisible: false },
-          edit: { isVisible: false }
+          edit: {
+            isVisible: true,
+            layout: ['paymentStatus']
+          }
         }
       }
     },
@@ -228,7 +239,7 @@ export const admin = new AdminJS({
       resource: Models.Subscription,
       options: {
         ...baseSubscriptionOptions,
-        id: '1_AllSubscriptions',
+        id: 'Subscription',
         navigation: { name: 'Subscription Manager', icon: 'Calendar' },
       }
     },
@@ -248,7 +259,10 @@ export const admin = new AdminJS({
             }
           },
           new: { isVisible: false },
-          edit: { isVisible: false }
+          edit: {
+            isVisible: true,
+            layout: ['deliveryPartner.partner']
+          }
         }
       }
     },
@@ -291,7 +305,10 @@ export const admin = new AdminJS({
             }
           },
           new: { isVisible: false },
-          edit: { isVisible: false }
+          edit: {
+            isVisible: true,
+            layout: ['paymentStatus']
+          }
         }
       }
     },

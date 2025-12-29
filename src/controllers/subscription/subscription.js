@@ -81,9 +81,7 @@ export const createSubscriptionOrder = async (req, res) => {
 
 export const getSubscription = async (req, res) => {
   try {
-    console.log('🔍 getSubscription called with params:', req.params);
-    console.log('🔍 getSubscription called with query:', req.query);
-    console.log('🔍 getSubscription called with body:', req.body);
+
 
     // Check if an ID parameter is provided
     if (!req.params.id) {

@@ -401,6 +401,30 @@ export const fetchUser = async (req, res) => {
 
         if (role === 'Customer') {
             user = await Customer.findById(userId);
+
+            // Fetch active subscription if customer
+            if (user) {
+                const Subscription = (await import('../../models/subscription.js')).default;
+                const activeSubscription = await Subscription.findOne({
+                    customer: userId,
+                    status: { $in: ['active', 'pending'] }
+                }).sort({ createdAt: -1 }).lean();
+
+                return res.status(200).json({
+                    message: "User fetched successfully",
+                    user: {
+                        ...user.toObject(),
+                        hasActiveSubscription: !!activeSubscription,
+                        subscription: activeSubscription ? {
+                            id: activeSubscription._id,
+                            subscriptionId: activeSubscription.subscriptionId,
+                            status: activeSubscription.status,
+                            startDate: activeSubscription.startDate,
+                            endDate: activeSubscription.endDate
+                        } : null
+                    }
+                });
+            }
         }
         else if (role === 'DeliveryPartner') {
             user = await DeliveryPartner.findById(userId);
@@ -417,7 +441,7 @@ export const fetchUser = async (req, res) => {
             message: "User fetched successfully",
             user: {
                 ...user.toObject(),
-                hasActiveSubscription: !!user.subscription
+                hasActiveSubscription: false
             }
         });
     }

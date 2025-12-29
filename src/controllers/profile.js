@@ -20,20 +20,21 @@ export const getUserProfile = async (req, res) => {
 
     return res.json({
       name: user.name,
-      email:user.email,
+      email: user.email,
       phone: user.phone,
       address: user.address,
       isActivated: user.isActivated,
       subscription: subscription
         ? {
-            id: subscription._id,
-            status: subscription.status,
-            milkType: subscription.milkType,
-            slot: subscription.slot,
-            quantity: subscription.quantity,
-            startDate: subscription.startDate,
-            endDate: subscription.endDate,
-          }
+          id: subscription._id,
+          subscriptionId: subscription.subscriptionId, // Added for display
+          status: subscription.status,
+          milkType: subscription.milkType,
+          slot: subscription.slot,
+          quantity: subscription.quantity,
+          startDate: subscription.startDate,
+          endDate: subscription.endDate,
+        }
         : null,
     });
   } catch (error) {
@@ -43,28 +44,28 @@ export const getUserProfile = async (req, res) => {
 };
 
 export const updateUserProfile = async (req, res) => {
-    try {
-      const userId = req.user._id;
-      const { name, email, address } = req.body;
-  
-      const user = await Customer.findById(userId);
-  
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-  
-      if (name) user.name = name;
-      if (email) user.email = email;
-      if (address) user.address = address;
-  
-      await user.save();
-  
-      return res.json({ message: "Profile updated successfully" });
-    } catch (error) {
-      console.error("Profile update error:", error);
-      res.status(500).json({ error: "Internal Server Error" });
+  try {
+    const userId = req.user._id;
+    const { name, email, address } = req.body;
+
+    const user = await Customer.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
     }
-  };
+
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (address) user.address = address;
+
+    await user.save();
+
+    return res.json({ message: "Profile updated successfully" });
+  } catch (error) {
+    console.error("Profile update error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
 
 export const getDeliveryPartnerById = async (req, res) => {
   try {

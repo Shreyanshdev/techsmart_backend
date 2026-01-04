@@ -219,6 +219,11 @@ export const getSubscriptionInvoice = async (req, res) => {
         confirmedAt: d.confirmedAt || d.deliveredAt
       }));
 
+    // Calculate subtotal (bill minus taxes)
+    const sgstAmount = subscription.sgst || 0;
+    const cgstAmount = subscription.cgst || 0;
+    const subtotal = subscription.bill - sgstAmount - cgstAmount;
+
     return res.status(200).json({
       success: true,
       invoice: {
@@ -240,7 +245,10 @@ export const getSubscriptionInvoice = async (req, res) => {
         totalDeliveries: subscription.deliveries?.length || 0,
         deliveredCount: subscription.deliveries?.filter(d => d.status === 'delivered').length || 0,
         remainingDeliveries: subscription.deliveries?.filter(d => d.status === 'scheduled').length || 0,
+        subtotal: subtotal,
         bill: subscription.bill,
+        sgst: sgstAmount,
+        cgst: cgstAmount,
         paymentStatus: subscription.paymentStatus,
         paymentMethod: subscription.paymentDetails?.paymentMethod || 'online',
         deliveryAddress: subscription.deliveryAddress,
@@ -2770,16 +2778,18 @@ export const getAvailableRescheduleDates = async (req, res) => {
     }
 
     // Determine Loop Range
-    // Start: Today in UTC (Server Time -> UTC Date)
+    // Start: Tomorrow in UTC (Strictly prohibit rescheduling to today)
     const now = new Date();
     const todayUTC = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    const tomorrowUTC = new Date(todayUTC);
+    tomorrowUTC.setUTCDate(tomorrowUTC.getUTCDate() + 1);
 
     // End: lastDeliveryDate + 15 days
     const searchEndDate = new Date(lastDeliveryDate);
     searchEndDate.setUTCDate(searchEndDate.getUTCDate() + 15);
     searchEndDate.setUTCHours(0, 0, 0, 0);
 
-    let iterator = new Date(todayUTC);
+    let iterator = new Date(tomorrowUTC);
     const MAX_DAYS = 365; // Safety cap
     let count = 0;
 
@@ -3711,12 +3721,11 @@ export const rescheduleSubscriptionItem = async (req, res) => {
     // Remove product from source
     sourceDelivery.products.splice(productIndex, 1);
 
-    // If source delivery is now empty, handling logic
+    // If source delivery is now empty, remove it from the database entirely
+    // This makes the date available for future rescheduling
     if (sourceDelivery.products.length === 0) {
-      if (sourceDelivery.status === 'scheduled') {
-        sourceDelivery.status = 'canceled';
-        sourceDelivery.canceledAt = new Date();
-      }
+      console.log(`📅 Removing empty delivery for ${sourceDelivery.date} from database`);
+      subscription.deliveries.splice(sourceDeliveryIndex, 1);
     }
 
     // Find or create target delivery

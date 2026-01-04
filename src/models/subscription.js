@@ -450,49 +450,55 @@ subscriptionSchema.pre("save", async function (next) {
         await this.autoCancelExpiredDeliveries();
 
         // Auto-cancellation and concession logic for expired deliveries
+        // IMPORTANT: Only run after 11 PM to prevent accidental cancellation during the day
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const elevenPM = new Date(today);
+        elevenPM.setHours(23, 0, 0, 0);
 
-        this.deliveries.forEach(delivery => {
-            const deliveryDate = new Date(delivery.date);
-            const deliveryDay = new Date(deliveryDate.getFullYear(), deliveryDate.getMonth(), deliveryDate.getDate());
+        // Only process auto-cancellation after 11 PM
+        if (now >= elevenPM) {
+            this.deliveries.forEach(delivery => {
+                const deliveryDate = new Date(delivery.date);
+                const deliveryDay = new Date(deliveryDate.getFullYear(), deliveryDate.getMonth(), deliveryDate.getDate());
 
-            // If today's scheduled delivery didn't reach customer, auto-cancel and give concession
-            if (deliveryDay.getTime() === today.getTime() && delivery.status === 'scheduled' && !delivery.concession) {
-                console.log(`Auto-cancelling today's undelivered delivery for ${deliveryDate.toDateString()}`);
-                delivery.status = 'canceled';
-                delivery.canceledAt = new Date();
-                delivery.concession = true;
+                // If today's scheduled delivery didn't reach customer, auto-cancel and give concession
+                if (deliveryDay.getTime() === today.getTime() && delivery.status === 'scheduled' && !delivery.concession) {
+                    console.log(`Auto-cancelling today's undelivered delivery for ${deliveryDate.toDateString()}`);
+                    delivery.status = 'canceled';
+                    delivery.canceledAt = new Date();
+                    delivery.concession = true;
 
-                // Schedule replacement delivery at the end
-                const newDeliveryDate = new Date(this.endDate);
-                newDeliveryDate.setDate(newDeliveryDate.getDate() + 1);
+                    // Schedule replacement delivery at the end
+                    const newDeliveryDate = new Date(this.endDate);
+                    newDeliveryDate.setDate(newDeliveryDate.getDate() + 1);
 
-                // Calculate cutoff time for new delivery
-                const cutoffTime = new Date(newDeliveryDate);
-                if (this.slot.toLowerCase() === 'morning') {
-                    cutoffTime.setHours(4, 0, 0, 0);
-                } else {
-                    cutoffTime.setHours(16, 0, 0, 0);
+                    // Calculate cutoff time for new delivery
+                    const cutoffTime = new Date(newDeliveryDate);
+                    if (this.slot.toLowerCase() === 'morning') {
+                        cutoffTime.setHours(4, 0, 0, 0);
+                    } else {
+                        cutoffTime.setHours(16, 0, 0, 0);
+                    }
+
+                    this.deliveries.push({
+                        date: newDeliveryDate,
+                        slot: this.slot.toLowerCase(),
+                        status: 'scheduled',
+                        concession: true,
+                        cutoffTime: cutoffTime,
+                        deliveryPartnerId: delivery.deliveryPartnerId // Keep same delivery partner if assigned
+                    });
+
+                    // Extend subscription by 1 day and update counts
+                    this.endDate = newDeliveryDate;
+                    this.totalDeliveries += 1;
+                    this.remainingDeliveries += 1;
+
+                    console.log(`Added concession delivery for ${newDeliveryDate.toDateString()}, extended end date to ${this.endDate.toDateString()}`);
                 }
-
-                this.deliveries.push({
-                    date: newDeliveryDate,
-                    slot: this.slot.toLowerCase(),
-                    status: 'scheduled',
-                    concession: true,
-                    cutoffTime: cutoffTime,
-                    deliveryPartnerId: delivery.deliveryPartnerId // Keep same delivery partner if assigned
-                });
-
-                // Extend subscription by 1 day and update counts
-                this.endDate = newDeliveryDate;
-                this.totalDeliveries += 1;
-                this.remainingDeliveries += 1;
-
-                console.log(`Added concession delivery for ${newDeliveryDate.toDateString()}, extended end date to ${this.endDate.toDateString()}`);
-            }
-        });
+            });
+        }
 
         // Update remaining deliveries count for each product
         this.products.forEach(product => {

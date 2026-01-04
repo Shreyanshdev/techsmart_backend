@@ -142,9 +142,15 @@ export class GoogleMapsService {
         });
 
         return routeData;
+      } else if (data.status === 'ZERO_RESULTS') {
+        console.warn('⚠️ Google Directions API: No route found between the locations');
+        const error = new Error('No route found between the specified locations. Please use external navigation.');
+        error.code = 'NO_ROUTE_FOUND';
+        error.status = data.status;
+        throw error;
       } else {
         console.warn('⚠️ Google Directions API error:', data.status, data.error_message);
-        throw new Error(data.error_message || 'No routes found');
+        throw new Error(data.error_message || 'Failed to get directions');
       }
     } catch (error) {
       if (error.name === 'AbortError') {

@@ -789,7 +789,7 @@ export const getAvailableOrders = async (req, res) => {
     })
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
-      .populate('items.id') // Populate full product details
+      .populate('items.id', 'name price discountPrice image quantity unit') // Populate product details
       .sort({ createdAt: -1 });
 
     console.log(`🔍 Found ${availableOrders.length} available orders for branch: ${branchId}`);
@@ -837,7 +837,7 @@ export const getCurrentOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id') // Populate full product details
+      .populate('items.id', 'name price discountPrice image quantity unit') // Populate product details
       .sort({ createdAt: -1 });
 
     console.log(`Found ${currentOrders.length} current orders for delivery partner: ${deliveryPartnerId}`);
@@ -896,7 +896,7 @@ export const getHistoryOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id') // Populate full product details
+      .populate('items.id', 'name price discountPrice image quantity unit') // Populate product details
       .sort({ createdAt: -1 });
 
     console.log(`Found ${historyOrders.length} history orders for delivery partner: ${deliveryPartnerId}`);
@@ -1135,7 +1135,29 @@ export const getGoogleMapsDirections = async (req, res) => {
 
     const { origin, destination, routeType } = req.body;
 
-    // Return fallback route data
+    // Check if this is a "no route found" error
+    if (error.code === 'NO_ROUTE_FOUND') {
+      console.log('⚠️ No route found between locations - returning user-friendly response');
+      return res.status(200).json({
+        message: "No route found between these locations",
+        noRouteFound: true,
+        suggestion: "Please use Google Maps or another navigation app for directions",
+        routeData: {
+          coordinates: generateRouteCoordinates(origin, destination, 10),
+          distance: { text: "Route unavailable", value: 0 },
+          duration: { text: "Route unavailable", value: 0 },
+          routeType: routeType || 'partner-to-customer',
+          origin: origin || { latitude: 0, longitude: 0 },
+          destination: destination || { latitude: 0, longitude: 0 },
+          lastUpdated: new Date(),
+          warnings: ['No route found. Please use external navigation app.']
+        },
+        fallback: true,
+        error: error.message
+      });
+    }
+
+    // Return fallback route data for other errors
     const fallbackRoute = {
       coordinates: generateRouteCoordinates(origin, destination, 20),
       distance: { text: "Calculating...", value: 0 },

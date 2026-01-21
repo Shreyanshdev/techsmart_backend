@@ -33,14 +33,29 @@ const addressSchema = new mongoose.Schema({
     longitude: { type: Number, default: 0 },
     label: {
         type: String,
-        enum: ['Home', 'Office', 'Other'],
+        enum: ['Home', 'Office', 'Friends and Family', 'Other'],
         default: 'Home',
     },
     labelCustom: {
         type: String,
         default: '',
     },
-});
+    // Receiver name for Friends and Family / Other addresses
+    receiverName: {
+        type: String,
+        default: '',
+    },
+    // Receiver phone number (optional)
+    receiverPhone: {
+        type: String,
+        default: '',
+    },
+    // Directions to reach
+    directions: {
+        type: String,
+        default: '',
+    },
+}, { timestamps: true });
 
 const Address = mongoose.model('Address', addressSchema);
 

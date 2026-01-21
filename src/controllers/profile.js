@@ -1,5 +1,5 @@
 import { Customer, DeliveryPartner } from "../models/user.js";
-import Subscription from "../models/subscription.js";
+import Inventory from "../models/inventory.js";
 
 export const getUserProfile = async (req, res) => {
   try {
@@ -13,35 +13,19 @@ export const getUserProfile = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Get the latest active or recent subscription for the user
-    const subscription = await Subscription.findOne({ customer: userId })
-      .sort({ createdAt: -1 }) // latest first
-      .lean();
-
     return res.json({
       name: user.name,
       email: user.email,
       phone: user.phone,
       address: user.address,
       isActivated: user.isActivated,
-      subscription: subscription
-        ? {
-          id: subscription._id,
-          subscriptionId: subscription.subscriptionId, // Added for display
-          status: subscription.status,
-          milkType: subscription.milkType,
-          slot: subscription.slot,
-          quantity: subscription.quantity,
-          startDate: subscription.startDate,
-          endDate: subscription.endDate,
-        }
-        : null,
     });
   } catch (error) {
     console.error("Profile fetch error:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
+
 
 export const updateUserProfile = async (req, res) => {
   try {
@@ -80,5 +64,71 @@ export const getDeliveryPartnerById = async (req, res) => {
   } catch (error) {
     console.error("Get delivery partner by ID error:", error);
     return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const toggleWishlist = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { productId, inventoryId } = req.body;
+    const itemToToggle = inventoryId || productId;
+
+    const user = await Customer.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const index = user.wishlist.indexOf(itemToToggle);
+    if (index === -1) {
+      user.wishlist.push(itemToToggle);
+    } else {
+      user.wishlist.splice(index, 1);
+    }
+
+    await user.save();
+    return res.json({ message: "Wishlist updated", wishlist: user.wishlist });
+  } catch (error) {
+    console.error("Wishlist toggle error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+export const getWishlist = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { branchId } = req.query;
+
+    const user = await Customer.findById(userId).populate({
+      path: 'wishlist',
+      populate: { path: 'product' }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const wishlistedInventories = user.wishlist.filter(item => item && item.product);
+
+    const enrichedProducts = wishlistedInventories.map(inventory => {
+      const productObj = inventory.product.toObject ? inventory.product.toObject() : inventory.product;
+      const invObj = inventory.toObject ? inventory.toObject() : inventory;
+
+      return {
+        ...productObj,
+        variants: [{
+          _id: invObj._id,
+          inventoryId: invObj._id,
+          variant: invObj.variant,
+          pricing: invObj.pricing,
+          stock: invObj.stock,
+          isAvailable: invObj.isAvailable
+        }]
+      };
+    });
+
+    return res.json(enrichedProducts);
+  } catch (error) {
+    console.error("Wishlist fetch error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 };

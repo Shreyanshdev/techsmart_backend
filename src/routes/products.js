@@ -1,4 +1,5 @@
 import express from 'express';
+import { verifyToken } from '../middleware/auth.js';
 import { getAllCategories } from "../controllers/product/category.js";
 import {
     getProductByCategoryId,
@@ -6,10 +7,13 @@ import {
     getProductById,
     searchProducts,
     getRelatedProducts,
-    getFeaturedProducts,
-    getSubscriptionAvailableProducts,
     getAllTags,
-    getAllBrands
+    getAllBrands,
+    getProductsByBrand,
+    getBranchProducts,
+    createProduct,
+    updateProduct,
+    deleteProduct
 } from "../controllers/product/product.js";
 
 const router = express.Router();
@@ -21,17 +25,22 @@ const router = express.Router();
 router.get("/search", searchProducts);
 router.get("/tags", getAllTags);
 router.get("/brands", getAllBrands);
-
-// Special product collections (must come before /:productId)
-router.get("/featured", getFeaturedProducts);
-router.get("/subscription-available", getSubscriptionAvailableProducts);
+router.get("/brand/:brandName", getProductsByBrand);
 
 // Category routes (must come before /:productId)
 router.get("/categories", getAllCategories);
 router.get("/category/:categoryId", getProductByCategoryId);
 
+// Branch-specific products
+router.get("/branch/:branchId", getBranchProducts);
+
 // Basic product routes
 router.get("/", getAllProducts);
+
+// Admin routes (protected)
+router.post("/", verifyToken, createProduct);
+router.put("/:productId", verifyToken, updateProduct);
+router.delete("/:productId", verifyToken, deleteProduct);
 
 // Parameterized routes MUST come last
 router.get("/:productId/related", getRelatedProducts);

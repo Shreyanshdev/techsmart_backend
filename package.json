@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Express.js backend for Lush & Pure",
+  "description": "Express.js backend for TakeSmart",
   "main": "app.js",
   "type": "module",
   "scripts": {

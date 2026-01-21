@@ -27,8 +27,12 @@ const customerSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Address',
     }],
+    wishlist: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Inventory',
+    }],
     liveLocation: {
-        latitude: { type: Number }, // Fixed typo: latitute -> latitude
+        latitude: { type: Number },
         longitude: { type: Number },
     },
     role: {
@@ -36,15 +40,6 @@ const customerSchema = new mongoose.Schema({
         enum: ['Customer'],
         default: 'Customer',
     },
-    subscription: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Subscription',
-    },
-    // Array of all subscriptions (active and expired)
-    subscriptions: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Subscription',
-    }],
     email: {
         type: String,
         lowercase: true,

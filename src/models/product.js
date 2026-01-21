@@ -1,50 +1,24 @@
 import mongoose from "mongoose";
 
-// Simplified Nutrition Schema for dairy products
-const nutritionSchema = new mongoose.Schema({
-    calories: {
-        type: Number,
-        default: 0,
-        description: "Calories per 100ml/g"
-    },
-    protein: {
-        type: Number,
-        default: 0,
-        description: "Protein in grams per 100ml/g"
-    },
-    fat: {
-        type: Number,
-        default: 0,
-        description: "Fat in grams per 100ml/g"
-    },
-    calcium: {
-        type: Number,
-        default: 0,
-        description: "Calcium in mg per 100ml/g"
-    },
-    vitaminD: {
-        type: Number,
-        default: 0,
-        description: "Vitamin D in IU per 100ml/g"
-    }
-}, { _id: false });
+/**
+ * Product Model (Master Product Collection)
+ * Contains static product information that doesn't change per store
+ * Pricing, stock, and variants are managed in the Inventory collection
+ */
 
-// Quantity Schema
-const quantitySchema = new mongoose.Schema({
-    value: {
-        type: Number,
-        required: true,
-        description: "Numeric value of quantity"
-    },
-    unit: {
+// Attribute Schema for flexible key-value pairs
+const attributeSchema = new mongoose.Schema({
+    key: {
         type: String,
         required: true,
-        enum: ['ml', 'l', 'g', 'kg'],
-        description: "Unit of measurement"
+        trim: true
+    },
+    value: {
+        type: mongoose.Schema.Types.Mixed,
+        required: true
     }
 }, { _id: false });
 
-// Dairy-Specific Product Schema
 const productSchema = new mongoose.Schema({
     // Basic Information
     name: {
@@ -54,6 +28,28 @@ const productSchema = new mongoose.Schema({
         trim: true,
         description: "Product name"
     },
+    brand: {
+        type: String,
+        trim: true,
+        index: true,
+        description: "Brand name"
+    },
+
+    // Category
+    category: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Category",
+        required: true,
+        index: true
+    },
+    subCategory: {
+        type: String,
+        trim: true,
+        index: true,
+        description: "Sub-category (e.g., Sunflower Oil, Toned Milk)"
+    },
+
+    // Descriptions
     shortDescription: {
         type: String,
         maxlength: 200,
@@ -63,149 +59,81 @@ const productSchema = new mongoose.Schema({
         type: String,
         description: "Detailed product description"
     },
+
+    // Images
     images: [{
         type: String,
-        required: true,
         description: "Product image URLs"
     }],
 
-    // Dairy-Specific Fields (optional for backward compatibility)
-    animalType: {
-        type: String,
-        enum: ['cow', 'buffalo', 'goat', 'mixed'],
-        description: "Type of animal milk"
-    },
-    breed: {
-        type: String,
-        description: "Animal breed (e.g., Jersey, Holstein, Murrah, Sahiwal)"
-    },
-    productType: {
-        type: String,
-        enum: ['milk', 'curd', 'paneer', 'ghee', 'butter', 'cheese', 'buttermilk', 'lassi'],
-        description: "Type of dairy product"
-    },
-    processingType: {
-        type: String,
-        enum: ['raw', 'pasteurized', 'homogenized', 'ultra-pasteurized', 'boiled'],
-        description: "Processing method"
-    },
-    fatContent: {
-        type: Number,
-        description: "Fat percentage (e.g., 3.5, 6.0)"
+    // Flexible Attributes (Attribute Pattern)
+    attributes: {
+        type: [attributeSchema],
+        default: [],
+        description: "Flexible key-value attributes"
     },
 
-    // Category
-    category: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Category",
-        required: true,
-        description: "Product category"
+    // Product Status
+    isActive: {
+        type: Boolean,
+        default: true,
+        index: true
     },
 
-    // Pricing & Quantity
-    price: {
-        type: Number,
-        required: true,
-        description: "Product price"
-    },
-    discountPrice: {
-        type: Number,
-        description: "Discounted price"
-    },
-    quantity: {
-        type: quantitySchema,
-        required: true,
-        default: () => ({ value: 500, unit: 'ml' }),
-        description: "Quantity with value and unit"
-    },
-
-    // Nutrition
-    nutrition: {
-        type: nutritionSchema,
-        description: "Nutritional information"
-    },
-
-    // Quality & Safety
-    shelfLife: {
+    // Search Tags
+    tags: [{
         type: String,
-        description: "Shelf life (e.g., '2 days', '7 days')"
-    },
-    storageTemp: {
+        trim: true,
+        lowercase: true
+    }],
+    deliveryInstructions: [{
         type: String,
-        description: "Storage temperature (e.g., '2-4°C')"
-    },
-    certifications: [{
-        type: String,
-        description: "Certifications like 'FSSAI', 'Organic', 'A2'"
+        trim: true
     }],
 
-    // Stock and Availability
-    stock: {
-        type: Number,
-        default: 0,
-        description: "Available stock"
-    },
-    status: {
-        type: String,
-        enum: ['active', 'inactive', 'out_of_stock'],
-        default: 'active',
-        description: "Product status"
-    },
-    featured: {
-        type: Boolean,
-        default: false,
-        description: "Whether product is featured"
-    },
-
-    // Subscription Configuration
-    isSubscriptionAvailable: {
-        type: Boolean,
-        default: false,
-        description: "Whether this product is available for subscription"
-    },
-
-    subscriptionConfig: {
-        deliveryFrequencies: [{
+    // Flexible Other Information (key-value pairs for any additional info)
+    otherInformation: [{
+        label: {
             type: String,
-            enum: ['daily', 'alternate', 'weekly', 'monthly']
-        }],
+            required: true,
+            trim: true,
+            description: "Display label (e.g., 'Country of Origin', 'Manufacturer', 'FSSAI License')"
+        },
+        value: {
+            type: String,
+            required: true,
+            trim: true
+        }
+    }],
 
-        frequencyPricing: {
-            daily: {
-                enabled: { type: Boolean, default: true },
-                multiplier: { type: Number, default: 1.0 },
-                maxDeliveries: { type: Number, default: 30 },
-                description: { type: String, default: "Daily delivery - 30 deliveries per month" }
-            },
-            alternate: {
-                enabled: { type: Boolean, default: true },
-                multiplier: { type: Number, default: 1.0 },
-                maxDeliveries: { type: Number, default: 15 },
-                description: { type: String, default: "Alternate day delivery - 15 deliveries per month" }
-            },
-            weekly: {
-                enabled: { type: Boolean, default: true },
-                multiplier: { type: Number, default: 1.0 },
-                maxDeliveries: { type: Number, default: 5 },
-                description: { type: String, default: "Weekly delivery - 5 deliveries per month" }
-            },
-            monthly: {
-                enabled: { type: Boolean, default: true },
-                multiplier: { type: Number, default: 1.0 },
-                maxDeliveries: { type: Number, default: 1 },
-                description: { type: String, default: "Monthly delivery - 1 delivery per month" }
-            }
+    // Rating Statistics (calculated from reviews)
+    rating: {
+        average: {
+            type: Number,
+            default: 0,
+            min: 0,
+            max: 5
+        },
+        count: {
+            type: Number,
+            default: 0
         }
     },
 
-    // Timestamps
-    createdAt: {
-        type: Date,
-        default: Date.now
-    },
-    updatedAt: {
-        type: Date,
-        default: Date.now
+    // Manually set related products
+    relatedProducts: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Product",
+        description: "Manually curated related products"
+    }],
+
+    // SEO
+    slug: {
+        type: String,
+        unique: true,
+        sparse: true,
+        lowercase: true,
+        trim: true
     }
 }, {
     timestamps: true,
@@ -213,36 +141,37 @@ const productSchema = new mongoose.Schema({
     toObject: { virtuals: true }
 });
 
-// Indexes for better search performance
-productSchema.index({ name: 'text', shortDescription: 'text' });
-productSchema.index({ category: 1 });
-productSchema.index({ animalType: 1 });
-productSchema.index({ productType: 1 });
-productSchema.index({ status: 1 });
-productSchema.index({ featured: 1 });
-productSchema.index({ fatContent: 1 });
+// Text index for search
+productSchema.index({ name: 'text', brand: 'text', description: 'text', tags: 'text' });
 
-// Virtual for formatted quantity
-productSchema.virtual('formattedQuantity').get(function () {
-    if (!this.quantity) return '500ml';
-    if (typeof this.quantity === 'string') return this.quantity;
-    if (this.quantity.value && this.quantity.unit) {
-        return `${this.quantity.value}${this.quantity.unit}`;
-    }
-    return '500ml';
-});
+// Compound indexes
+productSchema.index({ category: 1, isActive: 1 });
+productSchema.index({ brand: 1, category: 1 });
 
-// Virtual for discount percentage
-productSchema.virtual('discountPercentage').get(function () {
-    if (this.discountPrice && this.price) {
-        return Math.round(((this.price - this.discountPrice) / this.price) * 100);
-    }
-    return 0;
-});
+// Virtual to get attribute by key
+productSchema.methods.getAttribute = function (key) {
+    const attr = this.attributes.find(a => a.key === key);
+    return attr ? attr.value : null;
+};
 
-// Pre-save middleware to update timestamps
+// Static method to find active products by category
+productSchema.statics.findByCategory = async function (categoryId) {
+    return this.find({
+        category: categoryId,
+        isActive: true
+    }).sort({ name: 1 });
+};
+
+// Pre-save hook to generate slug
 productSchema.pre('save', function (next) {
-    this.updatedAt = new Date();
+    if (this.isModified('name') && !this.slug) {
+        this.slug = this.name
+            .toLowerCase()
+            .replace(/[^\w\s-]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .trim();
+    }
     next();
 });
 

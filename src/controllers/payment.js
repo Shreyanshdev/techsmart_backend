@@ -1,7 +1,6 @@
 import razorpay from '../config/razorpay.js';
 import crypto from 'crypto';
 import Order from '../models/order.js'; // Import the Order model
-import Subscription from '../models/subscription.js'; // Import the Subscription model
 import mongoose from 'mongoose';
 import {
     validatePositiveNumber,
@@ -137,7 +136,7 @@ export const verifyPayment = async (req, res) => {
     const session = await mongoose.startSession();
 
     try {
-        const { order_id, payment_id, signature, appOrderId, subscriptionId, amount, isAddProductPayment } = req.body;
+        const { order_id, payment_id, signature, appOrderId, amount } = req.body;
 
         // Enhanced validation
         if (!order_id || !payment_id || !signature) {
@@ -202,40 +201,6 @@ export const verifyPayment = async (req, res) => {
             }
         }
 
-        // Handle addProduct payments (no specific processing needed, just verification)
-        if (subscriptionId && isAddProductPayment) {
-            console.log('✅ Processing addProduct payment verification:', { order_id, payment_id, subscriptionId });
-            // For addProduct payments, we just need to verify the payment
-            // The actual product addition happens in the frontend after verification
-            // No need to call processSubscriptionPayment for add-product payments
-        } else if (subscriptionId && !appOrderId) {
-            // Verify subscription belongs to authenticated user
-            const subscription = await Subscription.findById(subscriptionId);
-            if (subscription && subscription.customer.toString() !== userId.toString()) {
-                await session.abortTransaction();
-                return res.status(403).json({
-                    success: false,
-                    error: "Unauthorized payment verification"
-                });
-            }
-
-            // This is a subscription creation payment - process it normally
-            const subscriptionResult = await processSubscriptionPayment(subscriptionId, {
-                order_id,
-                payment_id,
-                signature,
-                amount
-            }, session);
-
-            if (!subscriptionResult.success) {
-                await session.abortTransaction();
-                return res.status(400).json({
-                    success: false,
-                    error: subscriptionResult.error
-                });
-            }
-        }
-
         // Commit transaction
         await session.commitTransaction();
 
@@ -244,8 +209,7 @@ export const verifyPayment = async (req, res) => {
             message: "Payment verified successfully",
             order_id,
             payment_id,
-            appOrderId: appOrderId || null,
-            subscriptionId: subscriptionId || null
+            appOrderId: appOrderId || null
         });
 
     } catch (error) {
@@ -395,101 +359,6 @@ async function processOrderPayment(orderId, paymentData, session) {
     }
 }
 
-// Process subscription payment with validation
-async function processSubscriptionPayment(subscriptionId, paymentData, session) {
-    try {
-        const { order_id, payment_id, signature, amount } = paymentData;
-
-        // Validate subscription ID format
-        if (!mongoose.Types.ObjectId.isValid(subscriptionId)) {
-            return { success: false, error: "Invalid subscription ID format" };
-        }
-
-        // Find subscription with session for transaction
-        const subscription = await Subscription.findById(subscriptionId).session(session);
-        if (!subscription) {
-            return { success: false, error: "Subscription not found" };
-        }
-
-        // Check if subscription is in a state that allows payment verification
-        if (!['active', 'pending'].includes(subscription.status)) {
-            return { success: false, error: `Subscription cannot be verified. Current status: ${subscription.status}` };
-        }
-
-        // Validate amount if provided
-        if (amount) {
-            const expectedAmount = subscription.bill || subscription.price;
-            const receivedAmount = Number(amount);
-            if (Math.abs(receivedAmount - expectedAmount) > 0.01) {
-                return { success: false, error: `Amount mismatch. Expected: ${expectedAmount}, Received: ${receivedAmount}` };
-            }
-        }
-
-        // Check for duplicate payment processing
-        if (subscription.paymentStatus === 'verified' || subscription.paymentStatus === 'completed') {
-            return { success: false, error: "Payment already processed for this subscription" };
-        }
-
-        // Update subscription with payment information
-        subscription.status = 'active';
-        subscription.paymentStatus = 'verified';
-        subscription.paymentDetails = {
-            razorpayOrderId: order_id,
-            razorpayPaymentId: payment_id,
-            razorpaySignature: signature,
-            verifiedAt: new Date(),
-            amount: amount || subscription.bill || subscription.price
-        };
-        subscription.updatedAt = new Date();
-
-        await subscription.save({ session });
-        console.log(`Subscription ${subscriptionId} payment verified and status updated to active.`);
-
-        return { success: true };
-    } catch (error) {
-        console.error("Process subscription payment error:", error);
-        return { success: false, error: "Failed to process subscription payment" };
-    }
-}
-
-// Get subscription payment status
-export const getSubscriptionPaymentStatus = async (req, res) => {
-    try {
-        const { subscriptionId } = req.params;
-
-        if (!mongoose.Types.ObjectId.isValid(subscriptionId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Invalid subscription ID format"
-            });
-        }
-
-        const subscription = await Subscription.findById(subscriptionId);
-        if (!subscription) {
-            return res.status(404).json({
-                success: false,
-                error: "Subscription not found"
-            });
-        }
-
-        res.json({
-            success: true,
-            subscriptionId: subscription._id,
-            status: subscription.status,
-            paymentStatus: subscription.paymentStatus || 'pending',
-            paymentDetails: subscription.paymentDetails || null,
-            totalAmount: subscription.bill || subscription.price
-        });
-
-    } catch (error) {
-        console.error("Get subscription payment status error:", error);
-        res.status(500).json({
-            success: false,
-            error: "Internal server error"
-        });
-    }
-};
-
 // Create COD order payment (no Razorpay, just mark as COD)
 export const createCodOrder = async (req, res) => {
     try {
@@ -554,75 +423,6 @@ export const createCodOrder = async (req, res) => {
         res.status(500).json({
             success: false,
             error: "Failed to create COD order"
-        });
-    }
-};
-
-// Create COD subscription (no Razorpay, just mark as COD)
-export const createCodSubscription = async (req, res) => {
-    try {
-        const { subscriptionId } = req.body;
-
-        if (!subscriptionId || !mongoose.Types.ObjectId.isValid(subscriptionId)) {
-            return res.status(400).json({
-                success: false,
-                error: "Valid subscription ID is required"
-            });
-        }
-
-        const subscription = await Subscription.findById(subscriptionId);
-        if (!subscription) {
-            return res.status(404).json({
-                success: false,
-                error: "Subscription not found"
-            });
-        }
-
-        // SECURITY: Verify subscription belongs to authenticated user
-        const userId = req.user._id || req.user.userId;
-        if (subscription.customer.toString() !== userId.toString()) {
-            return res.status(403).json({
-                success: false,
-                error: "You are not authorized to pay for this subscription"
-            });
-        }
-
-        // Check if subscription is in a state that allows COD
-        if (!['pending'].includes(subscription.status)) {
-            return res.status(400).json({
-                success: false,
-                error: `Subscription cannot be paid via COD. Current status: ${subscription.status}`
-            });
-        }
-
-        // Mark subscription as COD and activate it
-        subscription.paymentDetails = {
-            paymentMethod: 'cod',
-            amount: subscription.bill || subscription.price,
-            currency: 'INR'
-        };
-        subscription.paymentStatus = 'pending'; // Will be collected over deliveries
-        subscription.status = 'active'; // Activate the subscription
-        subscription.updatedAt = new Date();
-
-        await subscription.save();
-
-        console.log(`✅ Subscription ${subscriptionId} marked as COD - Amount: ₹${subscription.bill || subscription.price}`);
-
-        res.json({
-            success: true,
-            message: "Subscription activated with Cash on Delivery",
-            subscriptionId: subscription._id,
-            subscriptionId_display: subscription.subscriptionId,
-            amount: subscription.bill || subscription.price,
-            paymentMethod: 'cod'
-        });
-
-    } catch (error) {
-        console.error("Create COD subscription error:", error);
-        res.status(500).json({
-            success: false,
-            error: "Failed to create COD subscription"
         });
     }
 };

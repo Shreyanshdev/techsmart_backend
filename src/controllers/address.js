@@ -16,7 +16,11 @@ export const addAddress = async (req, res) => {
             return res.status(400).json({ message: "User ID not found in token" });
         }
 
-        const { addressLine1, addressLine2, city, state, zipCode, isDefault, latitude, longitude, label, labelCustom } = req.body;
+        const {
+            addressLine1, addressLine2, city, state, zipCode,
+            isDefault, latitude, longitude, label, labelCustom,
+            receiverName, receiverPhone, directions
+        } = req.body;
 
         // ===== INPUT VALIDATION =====
         try {
@@ -71,6 +75,9 @@ export const addAddress = async (req, res) => {
             longitude: finalLongitude,
             label: label || 'Home',
             labelCustom: labelCustom || '',
+            receiverName: receiverName || '',
+            receiverPhone: receiverPhone || '',
+            directions: directions || '',
         });
 
         await newAddress.save();
@@ -121,7 +128,11 @@ export const updateAddress = async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user._id || req.user.userId;
-        const { addressLine1, addressLine2, city, state, zipCode, isDefault, latitude, longitude, label, labelCustom } = req.body;
+        const {
+            addressLine1, addressLine2, city, state, zipCode,
+            isDefault, latitude, longitude, label, labelCustom,
+            receiverName, receiverPhone, directions
+        } = req.body;
 
         // ===== INPUT VALIDATION =====
         try {
@@ -189,6 +200,9 @@ export const updateAddress = async (req, res) => {
                 longitude: finalLongitude,
                 label: label || 'Home',
                 labelCustom: labelCustom || '',
+                receiverName: receiverName || '',
+                receiverPhone: receiverPhone || '',
+                directions: directions || '',
             },
             { new: true }
         );

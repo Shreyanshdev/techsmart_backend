@@ -20,7 +20,8 @@ import {
     getOptimizedRoute,
     getGoogleMapsDirections,
     deletePendingOrder,
-    getOrderInvoice
+    getOrderInvoice,
+    collectCodPayment
 } from "../controllers/order/order.js";
 
 import { verifyToken } from "../middleware/auth.js";
@@ -48,6 +49,7 @@ router.post("/:orderId/delivered", requireDeliveryPartner, markOrderAsDelivered)
 router.patch("/:orderId/location", requireDeliveryPartner, updateDeliveryPartnerLocation);
 router.post("/:orderId/optimize-route", requireDeliveryPartner, getOptimizedRoute);
 router.post("/:orderId/directions", requireDeliveryPartner, getGoogleMapsDirections);
+router.post("/:orderId/verify-cash", requireDeliveryPartner, collectCodPayment);
 
 // Shared routes (both customer and delivery partner can access)
 router.get("/", getOrders);

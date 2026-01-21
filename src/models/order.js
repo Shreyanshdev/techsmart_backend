@@ -15,26 +15,71 @@ const orderSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: "DeliveryPartner",
     },
+    // Branch from which order is fulfilled
     branch: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Branch",
-        required: true,
+        description: "Branch from which order is fulfilled"
     },
+    // Items with Inventory references (variant-specific)
     items: [{
-        id: {
+        inventory: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Inventory",
+            required: true,
+            description: "Inventory reference (variant-specific)"
+        },
+        // Denormalized data for order history
+        productId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Product",
-            required: true,
+            required: false // Optional for legacy support
         },
-        item: {
+        productName: {
             type: String,
-            //ref: "Product",
-            required: true,
+            required: true
         },
-        count: {
+        productImage: {
+            type: String,
+            required: false,
+            description: "Image URL at time of order"
+        },
+        variantSku: {
+            type: String,
+            required: true
+        },
+        packSize: {
+            type: String,
+            required: true
+        },
+        handling: {
+            fragile: { type: Boolean, default: false },
+            cold: { type: Boolean, default: false },
+            heavy: { type: Boolean, default: false }
+        },
+        deliveryInstructions: [{
+            type: String,
+            trim: true
+        }],
+        quantity: {
             type: Number,
             required: true,
+            min: 1
         },
+        unitPrice: {
+            type: Number,
+            required: true,
+            description: "Price at time of order"
+        },
+        unitMrp: {
+            type: Number,
+            required: false,
+            description: "MRP at time of order"
+        },
+        totalPrice: {
+            type: Number,
+            required: true
+        }
     }],
     deliveryLocation: {
         latitude: { type: Number, required: true },
@@ -43,6 +88,14 @@ const orderSchema = new mongoose.Schema({
             type: String,
             required: true,
         },
+        addressLine1: { type: String },
+        addressLine2: { type: String },
+        city: { type: String },
+        state: { type: String },
+        zipCode: { type: String },
+        receiverName: { type: String },
+        receiverPhone: { type: String },
+        directions: { type: String },
     },
     pickupLocation: {
         latitude: { type: Number, required: true },
@@ -153,6 +206,14 @@ const orderSchema = new mongoose.Schema({
         default: 0,
     },
     cgst: {
+        type: Number,
+        default: 0,
+    },
+    couponCode: {
+        type: String,
+        default: null,
+    },
+    couponDiscount: {
         type: Number,
         default: 0,
     },

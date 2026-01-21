@@ -5,13 +5,14 @@ import orderRoutes from './order.js';
 import paymentRoutes from './payment.js';
 import productRoutes from './products.js';
 import profileRoutes from './profileRoutes.js';
-import subscriptionRoutes from './subscription.js';
 import branchRoutes from './branch.js';
-import deliveryManagementRoutes from './deliveryManagement.js';
-import animalHealthRoutes from './animalHealth.js';
+import inventoryRoutes from './inventory.js';
 import feedbackRoutes from './feedback.js';
 import adminRoutes from './adminRoutes.js';
+import reviewRoutes from './review.js';
 import taxRoutes from './tax.js';
+import couponRoutes from './coupon.js';
+import bannerRoutes from './banner.js';
 
 const router = express.Router();
 
@@ -24,10 +25,11 @@ export const registerRoutes = (app) => {
     app.use('/api/v1/payments', paymentRoutes);
     app.use('/api/v1/products', productRoutes);
     app.use('/api/v1/tax', taxRoutes);
-    app.use('/api/v1/subscriptions', subscriptionRoutes);
     app.use('/api/v1/branches', branchRoutes);
-    app.use('/api/v1/deliveries', deliveryManagementRoutes);
-    app.use('/api/v1/animal-health', animalHealthRoutes);
+    app.use('/api/v1/inventory', inventoryRoutes);
+    app.use('/api/v1/reviews', reviewRoutes);
     app.use('/api/v1/feedback', feedbackRoutes);
+    app.use('/api/v1/coupons', couponRoutes);
+    app.use('/api/v1/banners', bannerRoutes);
     app.use('/api/v1', profileRoutes); // Broad match last
 };

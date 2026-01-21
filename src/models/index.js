@@ -4,11 +4,12 @@ import Order from "./order.js";
 import Product from "./product.js";
 import Category from "./category.js";
 import Counter from "./counter.js";
-import Subscription from "./subscription.js";
 import Address from "./address.js";
-import AnimalHealth from "./animalHealth.js";
 import Feedback from "./Feedback.js";
 import Tax from "./tax.js";
+import Inventory from "./inventory.js";
+import Review from "./review.js";
+import { Coupon } from "./coupon.js";
 
 export {
     Customer,
@@ -19,9 +20,10 @@ export {
     Product,
     Category,
     Counter,
-    Subscription,
     Address,
-    AnimalHealth,
     Feedback,
-    Tax
+    Tax,
+    Inventory,
+    Review,
+    Coupon
 };

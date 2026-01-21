@@ -144,8 +144,9 @@ const generateFormalInvoiceHTML = (data) => {
                             <td style="border-bottom: 1px solid #000; border-right: 1px solid #000;">Invoice No.<br/><span class="bold">${data.invoiceNo}</span></td>
                             <td style="border-bottom: 1px solid #000;">Dated<br/><span class="bold">${formatDate(data.date)}</span></td>
                         </tr>
+                        <tr>
                             <td style="border-bottom: 1px solid #000; border-right: 1px solid #000;">Delivery Note<br/>&nbsp;</td>
-                            <td style="border-bottom: 1px solid #000;">Mode/Terms of Payment<br/>${data.isSubscription ? `Subscription - ${data.paymentMethod || 'Online'}` : (data.paymentMethod || 'Immediate')}</td>
+                            <td style="border-bottom: 1px solid #000;">Mode/Terms of Payment<br/>${data.paymentMethod || 'Immediate'}</td>
                         </tr>
                         <tr>
                             <td style="border-right: 1px solid #000;">Reference No. & Date.<br/>&nbsp;</td>
@@ -183,15 +184,9 @@ const generateFormalInvoiceHTML = (data) => {
                     <th style="width: 30px;">Sl No</th>
                     <th>Description of Goods</th>
                     <th style="width: 60px;">HSN/SAC</th>
-                    ${data.isSubscription ? `
-                    <th style="width: 70px;">Packet Size</th>
-                    <th style="width: 40px;">Qty/Del</th>
-                    <th style="width: 40px;">Total Del</th>
-                    ` : `
                     <th style="width: 70px;">Count</th>
-                    `}
                     <th style="width: 80px;">Rate</th>
-                    ${!data.isSubscription ? '<th style="width: 40px;">Disc %</th>' : ''}
+                    <th style="width: 40px;">Disc %</th>
                     <th style="width: 80px;">Amount</th>
                 </tr>
             </thead>
@@ -201,15 +196,9 @@ const generateFormalInvoiceHTML = (data) => {
                         <td class="center">${index + 1}</td>
                         <td><span class="bold">${item.name}</span><br/>${item.description || ''}</td>
                         <td class="center">${item.hsn || ''}</td>
-                        ${data.isSubscription ? `
-                        <td class="center">${item.packetSize}</td>
-                        <td class="center">${item.qtyPerDelivery}</td>
-                        <td class="center">${item.totalDeliveries}</td>
-                        ` : `
                         <td class="center bold">${item.quantity}</td>
-                        `}
                         <td class="center">${item.rate.toFixed(2)}</td>
-                        ${!data.isSubscription ? `<td class="center">${item.discount ? item.discount + '%' : 'N/A'}</td>` : ''}
+                        <td class="center">${item.discount ? item.discount + '%' : 'N/A'}</td>
                         <td class="right bold">${formatCurrency(item.amount)}</td>
                     </tr>
                 `).join('')}
@@ -217,26 +206,26 @@ const generateFormalInvoiceHTML = (data) => {
                 
                 <!-- Summary/Totals Section -->
                  <tr>
-                    <td colspan="${data.isSubscription ? 6 : 4}" class="right bold">Total ${data.isSubscription ? 'Deliveries' : 'Count'}: ${data.isSubscription ? data.items.reduce((s, i) => s + i.totalDeliveries, 0) : data.items.reduce((s, i) => s + i.quantity, 0)}</td>
-                    <td colspan="${data.isSubscription ? 1 : 2}" class="right">Taxable Value</td>
+                    <td colspan="4" class="right bold">Total Count: ${data.items.reduce((s, i) => s + i.quantity, 0)}</td>
+                    <td colspan="2" class="right">Taxable Value</td>
                     <td class="right">${formatCurrency(data.taxInfo.taxableValue)}</td>
                 </tr>
                 <tr>
-                    <td colspan="${data.isSubscription ? 7 : 6}" class="right">Add: CGST @ ${data.taxInfo.cgstRate}%</td>
+                    <td colspan="6" class="right">Add: CGST @ ${data.taxInfo.cgstRate}%</td>
                     <td class="right">${formatCurrency(data.taxInfo.cgstAmount)}</td>
                 </tr>
                 <tr>
-                    <td colspan="${data.isSubscription ? 7 : 6}" class="right">Add: SGST @ ${data.taxInfo.sgstRate}%</td>
+                    <td colspan="6" class="right">Add: SGST @ ${data.taxInfo.sgstRate}%</td>
                     <td class="right">${formatCurrency(data.taxInfo.sgstAmount)}</td>
                 </tr>
                  ${data.deliveryFee && data.deliveryFee > 0 ? `
                 <tr>
-                    <td colspan="${data.isSubscription ? 7 : 6}" class="right">Add: Delivery Charges</td>
+                    <td colspan="6" class="right">Add: Delivery Charges</td>
                     <td class="right">${formatCurrency(data.deliveryFee)}</td>
                 </tr>
                 ` : ''}
                 <tr>
-                    <td colspan="${data.isSubscription ? 7 : 6}" class="right bold" style="background-color: #f0f0f0;">Total Amount</td>
+                    <td colspan="6" class="right bold" style="background-color: #f0f0f0;">Total Amount</td>
                     <td class="right bold" style="background-color: #f0f0f0;">${formatCurrency(data.totalAmount)}</td>
                 </tr>
             </tbody>
@@ -315,36 +304,35 @@ export const getAdminOrderInvoice = async (req, res) => {
     const order = await Models.Order.findById(orderId)
       .populate('customer', 'name phone email')
       .populate('branch', 'name address phone')
-      .populate('items.id', 'name price discountPrice unit');
+      .populate('store', 'name address city')
+      .populate('items.inventory');
 
     if (!order) return res.status(404).send('Order not found');
 
-    // Reuse logic from invoice.service.ts createInvoiceFromOrder
+    // Map order items - now using denormalized data from new schema
     const items = order.items?.map((item) => {
-      const product = item.id || {}; // Populated product details
-      const unitPrice = product.price || 0;
-      const discountPrice = product.discountPrice || 0;
-      const quantity = item.count || 1;
+      const inventory = item.inventory || {};
 
-      const qtyValue = product.quantity?.value || product.quantityValue || '';
-      const qtyUnit = product.quantity?.unit || product.quantityUnit || '';
-      const sizeDescription = (qtyValue && qtyUnit) ? `(${qtyValue} ${qtyUnit})` : '';
+      // Use denormalized data from order item
+      const productName = item.productName || inventory.product?.name || 'Product';
+      const packSize = item.packSize || inventory.variant?.packSize || '';
+      const quantity = item.quantity || 1;
+      const unitPrice = item.unitPrice || inventory.pricing?.sellingPrice || 0;
+      const totalItemPrice = item.totalPrice || (unitPrice * quantity);
 
+      // Calculate discount if MRP is available
       let discountPercentage = 0;
-      let finalUnitPrice = unitPrice;
-
-      if (discountPrice > 0 && discountPrice < unitPrice) {
-        discountPercentage = Math.round(((unitPrice - discountPrice) / unitPrice) * 100);
-        finalUnitPrice = discountPrice;
+      if (inventory.pricing?.mrp && inventory.pricing?.sellingPrice) {
+        discountPercentage = Math.round(((inventory.pricing.mrp - inventory.pricing.sellingPrice) / inventory.pricing.mrp) * 100);
       }
 
       return {
-        name: item.item || product.name || 'Product',
-        description: sizeDescription,
+        name: productName,
+        description: packSize ? `(${packSize})` : '',
         quantity: quantity,
         unit: 'Nos',
         rate: unitPrice,
-        amount: finalUnitPrice * quantity,
+        amount: totalItemPrice,
         discount: discountPercentage,
         hsn: ''
       };
@@ -398,97 +386,6 @@ export const getAdminOrderInvoice = async (req, res) => {
 
   } catch (error) {
     console.error("Order Invoice Error:", error);
-    res.status(500).send("Internal Server Error");
-  }
-};
-
-
-export const getAdminSubscriptionInvoice = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const subscription = await Models.Subscription.findById(id)
-      .populate('customer', 'name phone email')
-      .populate('deliveryAddress');
-
-    if (!subscription) return res.status(404).send('Subscription not found');
-
-    const products = subscription.products || [];
-
-    // Map Subscription Products
-    const items = products.map((p) => {
-      const totalDeliveries = p.totalDeliveries || subscription.totalDeliveries || 0;
-      const count = p.count || 1;
-      const quantityValue = p.quantityValue || 0;
-      const quantityUnit = p.quantityUnit || 'Unit';
-
-      const startMonth = new Date(subscription.startDate).toLocaleString('default', { month: 'short', year: 'numeric' });
-      const endMonth = new Date(subscription.endDate).toLocaleString('default', { month: 'short', year: 'numeric' });
-      const dateRange = startMonth === endMonth ? startMonth : `${startMonth} - ${endMonth}`;
-
-      const totalPrice = p.monthlyPrice || (p.unitPrice * totalDeliveries);
-
-      return {
-        name: p.productName,
-        description: `${dateRange}\n(${p.deliveryFrequency})`,
-        packetSize: `${quantityValue} ${quantityUnit}`,
-        qtyPerDelivery: count,
-        totalDeliveries: totalDeliveries,
-        rate: p.unitPrice,
-        amount: totalPrice,
-        discount: 0,
-        hsn: '0401'
-      };
-    });
-
-    const totalAmount = subscription.bill || items.reduce((s, i) => s + i.amount, 0);
-
-    const sgstAmount = subscription.sgst || 0;
-    const cgstAmount = subscription.cgst || 0;
-    const taxAmount = sgstAmount + cgstAmount;
-    const taxableValue = totalAmount - taxAmount;
-
-    const sgstRate = taxableValue > 0 ? (sgstAmount / taxableValue) * 100 : 0;
-    const cgstRate = taxableValue > 0 ? (cgstAmount / taxableValue) * 100 : 0;
-
-    const taxInfo = {
-      taxableValue: taxableValue,
-      sgstRate: Number(sgstRate.toFixed(2)),
-      sgstAmount: sgstAmount,
-      cgstRate: Number(cgstRate.toFixed(2)),
-      cgstAmount: cgstAmount
-    };
-
-    const sessionYear = calculateSessionYear(subscription.startDate);
-    const subIdSuffix = subscription.subscriptionId || (subscription._id ? subscription._id.slice(-6).toUpperCase() : '000');
-
-    const invoiceData = {
-      invoiceNo: `LP/${sessionYear}/${subIdSuffix}`,
-      date: subscription.startDate,
-      sellerName: "Lushpure Ruralfields Private Limited",
-      sellerAddress: "Kasera Raya Mant Road, MATHURA, Uttar Pradesh - 281202",
-      sellerGstin: "09AAFCL8465L1ZS",
-      sellerState: "Uttar Pradesh",
-      sellerStateCode: "09",
-      buyerName: subscription.customer?.name || "Customer",
-      buyerAddress: subscription.deliveryAddress?.addressLine1 ?
-        `${subscription.deliveryAddress.addressLine1}, ${subscription.deliveryAddress.city}, ${subscription.deliveryAddress.state}` :
-        "Address not available",
-      buyerState: "Uttar Pradesh",
-      buyerStateCode: "09",
-      items: items,
-      totalAmount: totalAmount,
-      totalAmountWords: numberToWords(totalAmount),
-      taxInfo: taxInfo,
-      isSubscription: true,
-      subscriptionPeriod: `${new Date(subscription.startDate).toLocaleDateString()} to ${new Date(subscription.endDate).toLocaleDateString()}`,
-      paymentMethod: subscription.paymentDetails?.paymentMethod
-    };
-
-    const html = generateFormalInvoiceHTML(invoiceData);
-    res.send(html);
-
-  } catch (error) {
-    console.error("Subscription Invoice Error:", error);
     res.status(500).send("Internal Server Error");
   }
 };

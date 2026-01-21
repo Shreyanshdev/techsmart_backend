@@ -47,21 +47,6 @@ const baseOrderOptions = {
   }
 };
 
-const baseSubscriptionOptions = {
-  listProperties: ['subscriptionId', 'customer', 'status', 'startDate', 'endDate', 'bill'],
-  properties: {
-    'deliveryPartner.partner': {
-      type: 'reference',
-      reference: 'DeliveryPartner',
-    },
-    'products.quantityValue': { type: 'number', isTitle: false },
-    'products.quantityUnit': { type: 'string', isTitle: false }
-  },
-  actions: {
-    downloadInvoice: downloadInvoiceAction,
-    downloadCSV: downloadCSVAction
-  }
-};
 
 
 // Password validation for AdminJS
@@ -124,7 +109,22 @@ export const admin = new AdminJS({
         }
       }
     },
-    { resource: Models.Branch },
+    {
+      resource: Models.Branch,
+      options: {
+        listProperties: ['branchId', 'name', 'city', 'status', 'isActive'],
+        filterProperties: ['city', 'status', 'isActive'],
+        navigation: { name: 'Branch Management', icon: 'Home' }
+      }
+    },
+    {
+      resource: Models.Inventory,
+      options: {
+        listProperties: ['inventoryId', 'branch', 'product', 'variant.sku', 'pricing.sellingPrice', 'stock', 'isAvailable'],
+        filterProperties: ['branch', 'product', 'isAvailable'],
+        navigation: { name: 'Branch Management' }
+      }
+    },
     { resource: Models.Product },
     { resource: Models.Category },
 
@@ -182,14 +182,23 @@ export const admin = new AdminJS({
       }
     },
     {
-      resource: Models.Tax,
-    },
-    {
-      resource: Models.Subscription,
+      resource: Models.Review,
       options: {
-        ...baseSubscriptionOptions,
-        id: '1_AllSubscriptions',
-        navigation: { name: 'Subscription Manager', icon: 'Calendar' },
+        properties: {
+          order: {
+            type: 'reference',
+            reference: '1_AllOrders',
+          },
+          customer: {
+            type: 'reference',
+            reference: 'Customer',
+          },
+          product: {
+            type: 'reference',
+            reference: 'Product',
+          }
+        },
+        navigation: { name: 'Customer Feedback', icon: 'Star' }
       }
     },
     {
@@ -233,108 +242,8 @@ export const admin = new AdminJS({
         }
       }
     },
-
-    // --- SUBSCRIPTIONS SECTION ---
-    {
-      resource: Models.Subscription,
-      options: {
-        ...baseSubscriptionOptions,
-        id: 'Subscription',
-        navigation: { name: 'Subscription Manager', icon: 'Calendar' },
-      }
-    },
-    {
-      resource: Models.Subscription,
-      options: {
-        ...baseSubscriptionOptions,
-        id: '2_UnassignedSubscriptions',
-        navigation: { name: 'Subscription Manager' },
-        actions: {
-          ...baseSubscriptionOptions.actions,
-          list: {
-            before: async (request) => {
-              // This worked before - keep using null
-              request.query = { ...request.query, 'filters.deliveryPartner.partner': null };
-              return request;
-            }
-          },
-          new: { isVisible: false },
-          edit: {
-            isVisible: true,
-            layout: ['deliveryPartner.partner']
-          }
-        }
-      }
-    },
-    {
-      resource: Models.Subscription,
-      options: {
-        ...baseSubscriptionOptions,
-        id: '3_AssignedSubscriptions',
-        navigation: { name: 'Subscription Manager' },
-        actions: {
-          ...baseSubscriptionOptions.actions,
-          list: {
-            // Use 'after' hook to filter out unassigned subscriptions from results
-            after: async (response) => {
-              if (response.records) {
-                response.records = response.records.filter(record => {
-                  const dp = record.params['deliveryPartner.partner'];
-                  return dp !== null && dp !== undefined && dp !== '';
-                });
-              }
-              return response;
-            }
-          },
-          new: { isVisible: false }
-        }
-      }
-    },
-    {
-      resource: Models.Subscription,
-      options: {
-        ...baseSubscriptionOptions,
-        id: '4_CODSubscriptions',
-        navigation: { name: 'Subscription Manager' },
-        actions: {
-          ...baseSubscriptionOptions.actions,
-          list: {
-            before: async (request) => {
-              request.query = { ...request.query, 'filters.paymentDetails.paymentMethod': 'cod' };
-              return request;
-            }
-          },
-          new: { isVisible: false },
-          edit: {
-            isVisible: true,
-            layout: ['paymentStatus']
-          }
-        }
-      }
-    },
-    {
-      resource: Models.Subscription,
-      options: {
-        ...baseSubscriptionOptions,
-        id: '5_PaidSubscriptions',
-        navigation: { name: 'Subscription Manager' },
-        actions: {
-          ...baseSubscriptionOptions.actions,
-          list: {
-            before: async (request) => {
-              request.query = { ...request.query, 'filters.paymentStatus': 'verified' };
-              return request;
-            }
-          },
-          new: { isVisible: false },
-          edit: { isVisible: false }
-        }
-      }
-    },
-
     { resource: Models.Counter },
     { resource: Models.Address },
-    { resource: Models.AnimalHealth },
     { resource: Models.Feedback },
     {
       resource: Models.Tax,
@@ -343,10 +252,33 @@ export const admin = new AdminJS({
         filterProperties: ['isActive'],
         navigation: { name: 'Settings', icon: 'Settings' }
       }
+    },
+    {
+      resource: Models.Coupon,
+      options: {
+        listProperties: ['code', 'discountType', 'discountValue', 'minOrderValue', 'validUntil', 'isActive', 'usageCount'],
+        filterProperties: ['isActive', 'discountType'],
+        properties: {
+          description: {
+            type: 'textarea'
+          },
+          applicableCategories: {
+            type: 'reference',
+            reference: 'Category',
+            isArray: true
+          },
+          applicableBranches: {
+            type: 'reference',
+            reference: 'Branch',
+            isArray: true
+          }
+        },
+        navigation: { name: 'Promotions', icon: 'Tag' }
+      }
     }
   ],
   branding: {
-    companyName: "Lush & Pures",
+    companyName: "TakeSmart",
     withMadeWithLove: false,
   },
   defaultTheme: dark.id,

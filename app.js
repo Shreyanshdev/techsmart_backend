@@ -9,17 +9,8 @@ import { registerRoutes } from './src/routes/index.js';
 import { admin, buildAdminRouter } from './src/config/setup.js';
 import session from 'express-session';
 import { sessionStore } from './src/config/config.js';
-import { startSubscriptionCleanupCron } from './src/services/subscriptionCleanup.js';
-import { startMissedDeliveryCron } from './src/cron/missedDeliveryCron.js';
-import { startSubscriptionExpiryCron } from './src/cron/subscriptionExpiryCron.js';
-
 const start = async () => {
     await connectDB();
-
-    // Start background services
-    startSubscriptionCleanupCron();
-    startMissedDeliveryCron();
-    startSubscriptionExpiryCron();
 
     const app = express();
     const httpServer = createServer(app);
@@ -56,7 +47,7 @@ const start = async () => {
                 [];
 
             // Always allow the Render app URL for AdminJS dashboard
-            const renderUrl = 'https://lushandpurebackend.onrender.com';
+            const renderUrl = 'https://takesmartbackend.onrender.com';
             if (!allowedOrigins.includes(renderUrl)) {
                 allowedOrigins.push(renderUrl);
             }
@@ -126,7 +117,7 @@ const start = async () => {
     app.get('/', (req, res) => {
         res.status(200).json({
             status: 'ok',
-            message: 'Lush & Pure Backend API is running',
+            message: 'TakeSmart Backend API is running',
             timestamp: new Date().toISOString(),
             version: '1.0.0'
         });
@@ -175,11 +166,6 @@ const start = async () => {
             console.log(`Customer joined room: customer-${customerId}`);
         });
 
-        socket.on("joinSubscriptionRoom", (subscriptionId) => {
-            socket.join(`subscription-${subscriptionId}`);
-            console.log(`User joined subscription room: subscription-${subscriptionId}`);
-        });
-
         socket.on("joinDeliveryPartnerRoom", (partnerId) => {
             socket.join(`deliveryPartner-${partnerId}`);
             console.log(`Delivery partner joined room: deliveryPartner-${partnerId}`);
@@ -191,7 +177,7 @@ const start = async () => {
     });
 
     httpServer.listen(PORT, '0.0.0.0', () => {
-        console.log(`🌐 Lush & Pure Express backend running on all interfaces:`);
+        console.log(`🌐 TakeSmart Express backend running on all interfaces:`);
         console.log(`   • Local: http://localhost:${PORT}`);
         console.log(`   • Network: http://0.0.0.0:${PORT}`);
         console.log(`   • iOS Simulator: http://localhost:${PORT}`);

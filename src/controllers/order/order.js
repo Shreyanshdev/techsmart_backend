@@ -3,6 +3,8 @@ import Branch from "../../models/branch.js";
 import Order from "../../models/order.js";
 import Address from "../../models/address.js";
 import Tax from "../../models/tax.js";
+import Inventory from "../../models/inventory.js";
+import { Coupon } from "../../models/coupon.js";
 import { googleMapsService } from '../../services/googleMapsService.js';
 import {
   validateObjectId,
@@ -13,19 +15,18 @@ import {
 } from '../../utils/validators.js';
 
 // --- MAIN CREATE ORDER LOGIC ---
+// Updated for new inventory-based schema
 export const createOrder = async (req, res) => {
   try {
-    // UPDATED: Now also destructures addressId
-    const { userId, items, branch, totalPrice, addressId, deliveryFee } = req.body;
+    const { userId, items, branchId, totalPrice, addressId, deliveryFee, couponCode, couponDiscount } = req.body;
 
     // ===== INPUT VALIDATION =====
     try {
-      // Validate required fields
-      validateRequiredFields(req.body, ['userId', 'items', 'branch', 'totalPrice', 'deliveryFee']);
+      validateRequiredFields(req.body, ['userId', 'items', 'branchId', 'totalPrice', 'deliveryFee']);
 
       // Validate ObjectIds
       validateObjectId(userId, 'User ID');
-      validateObjectId(branch, 'Branch ID');
+      validateObjectId(branchId, 'Branch ID');
       if (addressId) {
         validateObjectId(addressId, 'Address ID');
       }
@@ -33,20 +34,16 @@ export const createOrder = async (req, res) => {
       // Validate items array
       validateNonEmptyArray(items, 'Items');
 
-      // Validate each item in the array
+      // Validate each item - expects inventoryId and quantity
       items.forEach((item, index) => {
-        if (!item.id || !item.item || item.count === undefined) {
-          throw new Error(`Item at index ${index} is missing required fields (id, item, count)`);
+        if (!item.inventoryId || item.quantity === undefined) {
+          throw new Error(`Item at index ${index} is missing required fields (inventoryId, quantity)`);
         }
-        validateObjectId(item.id, `Item ${index} product ID`);
+        validateObjectId(item.inventoryId, `Item ${index} inventory ID`);
 
-        const count = validatePositiveNumber(item.count, `Item ${index} count`);
-        if (!Number.isInteger(count)) {
-          throw new Error(`Item ${index} count must be an integer`);
-        }
-
-        if (typeof item.item !== 'string' || item.item.trim().length === 0) {
-          throw new Error(`Item ${index} name must be a non-empty string`);
+        const qty = validatePositiveNumber(item.quantity, `Item ${index} quantity`);
+        if (!Number.isInteger(qty)) {
+          throw new Error(`Item ${index} quantity must be an integer`);
         }
       });
 
@@ -54,7 +51,6 @@ export const createOrder = async (req, res) => {
       validatePositiveNumber(totalPrice, 'Total price');
       validateNonNegativeNumber(deliveryFee, 'Delivery fee');
 
-      // Validate totalPrice is reasonable (not too high)
       if (totalPrice > 1000000) {
         throw new Error('Total price exceeds maximum allowed value');
       }
@@ -68,35 +64,78 @@ export const createOrder = async (req, res) => {
     // ===== END VALIDATION =====
 
     const customerData = await Customer.findById(userId);
-    const branchData = await Branch.findById(branch);
-
     if (!customerData) {
       return res.status(404).json({ message: "Customer not found" });
     }
+
+    // Get branch data
+    const branchData = await Branch.findById(branchId);
     if (!branchData) {
       return res.status(404).json({ message: "Branch not found" });
     }
 
+    // Get pickup location from branch (supports both GeoJSON and legacy format)
+    const pickupData = {
+      latitude: branchData.lat || branchData.location?.latitude,
+      longitude: branchData.lng || branchData.location?.longitude,
+      address: branchData.address || branchData.name || "Not provided"
+    };
+
+    // Validate inventory items and check stock
+    const inventoryIds = items.map(item => item.inventoryId);
+    const inventoryItems = await Inventory.find({ _id: { $in: inventoryIds } })
+      .populate('product', 'name brand images tags');
+
+    if (inventoryItems.length !== items.length) {
+      return res.status(400).json({ message: "Some inventory items not found" });
+    }
+
+    // Validate stock availability
+    const orderItems = [];
+    for (const item of items) {
+      const inv = inventoryItems.find(i => i._id.toString() === item.inventoryId);
+
+      if (!inv.isAvailable) {
+        return res.status(400).json({
+          message: `Item ${inv.product?.name || 'Unknown'} is not available`
+        });
+      }
+
+      if (inv.stock < item.quantity) {
+        return res.status(400).json({
+          message: `Insufficient stock for ${inv.product?.name}. Available: ${inv.stock}`
+        });
+      }
+
+      // Build order item with denormalized data
+      orderItems.push({
+        inventory: inv._id,
+        productId: inv.product?._id,
+        productName: inv.product?.name || 'Unknown Product',
+        productImage: inv.variant?.images?.[0] || inv.product?.images?.[0] || '',
+        variantSku: inv.variant.sku,
+        packSize: inv.variant.packSize,
+        handling: inv.variant.handling || { fragile: false, cold: false, heavy: false },
+        deliveryInstructions: [], // Can be populated from checkout request later
+        quantity: item.quantity,
+        unitPrice: inv.pricing.sellingPrice,
+        unitMrp: inv.pricing.mrp,
+        totalPrice: inv.pricing.sellingPrice * item.quantity
+      });
+    }
+
     // --- Get address ---
-
     let addressData = null;
-
-    // 1. Use the addressId from the payload (if provided)
     if (addressId) {
       addressData = await Address.findById(addressId);
     }
-
-    // 2. If not provided, get default address for user
     if (!addressData) {
       addressData = await Address.findOne({ userId, isDefault: true });
     }
-
-    // 3. If still none, error out
     if (!addressData) {
       return res.status(404).json({ message: "Delivery address not found" });
     }
 
-    // --- Format delivery address as a string ---
     const deliveryAddress = [
       addressData.addressLine1,
       addressData.addressLine2,
@@ -105,43 +144,42 @@ export const createOrder = async (req, res) => {
       addressData.zipCode
     ].filter(Boolean).join(', ');
 
-    // --- Order requires lat/lng for delivery location ---
     const latitude = addressData.latitude ?? 0.0;
     const longitude = addressData.longitude ?? 0.0;
 
-    // Debug: Log incoming items to see product IDs
-    console.log('🔍 Creating order with items:', items.map(item => ({
-      id: item.id,
-      item: item.item,
-      count: item.count,
-      idType: typeof item.id
+    console.log('🔍 Creating order with inventory items:', orderItems.map(item => ({
+      inventoryId: item.inventory,
+      productName: item.productName,
+      quantity: item.quantity
     })));
 
     const newOrder = new Order({
       customer: userId,
-      items: items.map(item => ({
-        id: item.id, // Ensure this is the product's _id
-        item: item.item,
-        count: item.count,
-      })),
-      branch,
+      items: orderItems,
+      branch: branchId,
       totalPrice,
       deliveryLocation: {
         latitude,
         longitude,
-        address: deliveryAddress,  // ALWAYS a string!
+        address: deliveryAddress,
+        addressLine1: addressData.addressLine1,
+        addressLine2: addressData.addressLine2,
+        city: addressData.city,
+        state: addressData.state,
+        zipCode: addressData.zipCode,
+        receiverName: addressData.receiverName,
+        receiverPhone: addressData.receiverPhone,
+        directions: addressData.directions,
       },
-      pickupLocation: {
-        latitude: branchData.location.latitude,
-        longitude: branchData.location.longitude,
-        address: branchData.address || "Not provided",
-      },
-      deliveryFee: deliveryFee,  // Use the fee from the request
+      pickupLocation: pickupData,
+      deliveryFee: deliveryFee,
       deliveryPersonLocation: {
         latitude: 0.0,
         longitude: 0.0,
-        address: "Not assigned", // <-- NOT empty string
+        address: "Not assigned",
       },
+      couponCode: couponCode || null,
+      couponDiscount: couponDiscount || 0
     });
 
     // --- Fetch and Calculate Tax Details ---
@@ -154,14 +192,36 @@ export const createOrder = async (req, res) => {
 
     const savedOrder = await newOrder.save();
 
+    // PHASE 1: Reserve stock for each item (don't deduct yet)
+    // Stock will be deducted when order is picked up by delivery partner
+    for (const item of items) {
+      await Inventory.findByIdAndUpdate(item.inventoryId, {
+        $inc: { reservedStock: item.quantity }
+      });
+    }
+
     // Populate for socket and response
     const populatedOrder = await Order.findById(savedOrder._id)
       .populate('customer', 'name phone address')
-      .populate('branch', 'name address')
-      .populate('items.id', 'name price discountPrice image quantity unit');
+      .populate('branch', 'name address city')
+      .populate('items.inventory');
 
-    // Emit event to delivery partners in the branch
-    req.app.get('io').to(`branch-${branch}`).emit('newOrderAvailable', populatedOrder);
+    // Emit event to delivery partners
+    req.app.get('io').to(`branch-${branchId}`).emit('newOrderAvailable', populatedOrder);
+
+    // Record coupon usage if applied
+    if (couponCode) {
+      try {
+        const coupon = await Coupon.findOne({ code: couponCode.toUpperCase().trim() });
+        if (coupon) {
+          await coupon.recordUsage(userId);
+          console.log(`🎫 Recorded usage for coupon ${couponCode} by user ${userId}`);
+        }
+      } catch (couponError) {
+        console.error("Error recording coupon usage:", couponError);
+        // Don't fail the order if coupon usage recording fails, but log it
+      }
+    }
 
     return res.status(201).json({
       message: "Order created successfully",
@@ -172,7 +232,6 @@ export const createOrder = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
 
 export const confirmOrder = async (req, res) => {
   try {
@@ -406,7 +465,7 @@ export const getOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id', 'name price discountPrice image')
+      .populate('items.inventory')
       .sort({ createdAt: -1 });
 
     console.log(`Found ${orders.length} orders with filter:`, filter); // Debug log
@@ -431,7 +490,7 @@ export const getOrderById = async (req, res) => {
       { path: 'customer', model: 'Customer' },
       { path: 'branch', model: 'Branch' },
       { path: 'deliveryPartner', model: 'DeliveryPartner', select: 'name phone' },
-      { path: 'items.id', model: 'Product' }
+      { path: 'items.inventory', model: 'Inventory' }
     ]);
 
     if (!order) {
@@ -507,7 +566,7 @@ export const getMyOrderHistory = async (req, res) => {
 
 export const getActiveOrderForUser = async (req, res) => {
   try {
-    const userId = req.user._id; // <-- Correctly get the user ID from the middleware
+    const userId = req.user._id;
     const activeOrder = await Order.findOne({
       customer: userId,
       status: { $in: ["pending", "accepted", "in-progress", "awaitconfirmation"] },
@@ -546,7 +605,7 @@ export const getOrderTrackingInfo = async (req, res) => {
 export const confirmDeliveryReceipt = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const userId = req.user._id; // Customer's ID from token
+    const userId = req.user._id;
 
     const order = await Order.findById(orderId);
 
@@ -629,7 +688,7 @@ export const acceptOrder = async (req, res) => {
     order.deliveryStatus = "Partner Assigned";
     order.updatedAt = new Date();
 
-    await order.save();
+    await order.save({ validateModifiedOnly: true });
 
     // Emit socket event for real-time updates
     req.app.get('io').to(`branch-${order.branch}`).emit('orderAcceptedByOther', orderId);
@@ -678,7 +737,31 @@ export const pickupOrder = async (req, res) => {
     };
     order.updatedAt = new Date();
 
-    await order.save();
+    await order.save({ validateModifiedOnly: true });
+
+    // PHASE 2: Deduct actual stock from inventory (order picked up)
+    // This is where inventory is actually reduced - when items leave the store
+    for (const item of order.items) {
+      if (item.inventory) {
+        const updatedInventory = await Inventory.findByIdAndUpdate(
+          item.inventory,
+          {
+            $inc: {
+              stock: -item.quantity,      // Deduct from actual stock
+              reservedStock: -item.quantity  // Clear from reserved
+            }
+          },
+          { new: true }
+        );
+
+        // Mark unavailable if stock is depleted
+        if (updatedInventory && updatedInventory.stock <= 0) {
+          await Inventory.findByIdAndUpdate(item.inventory, {
+            isAvailable: false
+          });
+        }
+      }
+    }
 
     // Emit socket event for real-time updates
     req.app.get('io').to(orderId).emit('orderStatusUpdated', order);
@@ -736,7 +819,7 @@ export const markOrderAsDelivered = async (req, res) => {
         isFinalLocation: true, // Mark this as the final delivery location
         deliveredAt: new Date()
       };
-      console.log(`📍 Final delivery location saved for order ${order.orderId}:`, finalLocation);
+      console.log(` Final delivery location saved for order ${order.orderId}:`, finalLocation);
     }
 
     order.updatedAt = new Date();
@@ -783,26 +866,46 @@ export const getAvailableOrders = async (req, res) => {
       branch: branchId,
       status: 'pending',
       $or: [
-        { deliveryPartner: { $exists: false } }, // Orders not yet assigned to any delivery partner
-        { deliveryPartner: null } // Orders with null delivery partner
+        { deliveryPartner: { $exists: false } },
+        { deliveryPartner: null }
       ]
     })
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
-      .populate('items.id', 'name price discountPrice image quantity unit') // Populate product details
+      .populate('items.inventory')
       .sort({ createdAt: -1 });
 
-    console.log(`🔍 Found ${availableOrders.length} available orders for branch: ${branchId}`);
-    console.log(`🔍 Available orders:`, availableOrders.map(order => ({
-      _id: order._id,
-      status: order.status,
-      deliveryPartner: order.deliveryPartner,
-      customer: order.customer?.name
-    })));
+
+    const orders = availableOrders.map(order => {
+      const orderObj = order.toObject();
+      return {
+        _id: orderObj._id,
+        orderId: orderObj.orderId,
+        status: orderObj.status,
+        paymentDetails: {
+          paymentMethod: orderObj.paymentDetails?.paymentMethod || 'online',
+          method: orderObj.paymentDetails?.method
+        },
+        customer: {
+          name: orderObj.customer?.name || 'Customer'
+        },
+        branch: {
+          name: orderObj.branch?.name || 'Branch',
+          address: orderObj.branch?.address || 'Address'
+        },
+        deliveryLocation: orderObj.deliveryLocation,
+        pickupLocation: orderObj.pickupLocation,
+        itemCount: orderObj.items?.reduce((sum, item) => sum + (item.quantity || item.count || 0), 0) || 0,
+        totalPrice: orderObj.totalPrice,
+        deliveryFee: orderObj.deliveryFee,
+        createdAt: orderObj.createdAt
+      };
+    });
+
 
     return res.status(200).json({
       message: "Available orders fetched successfully",
-      orders: availableOrders,
+      orders: orders,
       total: availableOrders.length
     });
   } catch (error) {
@@ -837,7 +940,7 @@ export const getCurrentOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id', 'name price discountPrice image quantity unit') // Populate product details
+      .populate('items.inventory')
       .sort({ createdAt: -1 });
 
     console.log(`Found ${currentOrders.length} current orders for delivery partner: ${deliveryPartnerId}`);
@@ -859,9 +962,37 @@ export const getCurrentOrders = async (req, res) => {
       });
     });
 
+    const orders = currentOrders.map(order => {
+      const orderObj = order.toObject();
+      return {
+        _id: orderObj._id,
+        orderId: orderObj.orderId,
+        status: orderObj.status,
+        paymentDetails: {
+          paymentMethod: orderObj.paymentDetails?.paymentMethod || 'online',
+          method: orderObj.paymentDetails?.method
+        },
+        customer: {
+          name: orderObj.customer?.name || 'Customer'
+        },
+        branch: {
+          name: orderObj.branch?.name || 'Branch',
+          address: orderObj.branch?.address || 'Address'
+        },
+        deliveryLocation: orderObj.deliveryLocation,
+        pickupLocation: orderObj.pickupLocation,
+        itemCount: orderObj.items?.reduce((sum, item) => sum + (item.quantity || item.count || 0), 0) || 0,
+        totalPrice: orderObj.totalPrice,
+        deliveryFee: orderObj.deliveryFee,
+        createdAt: orderObj.createdAt,
+        deliveryStatus: orderObj.deliveryStatus,
+        deliveryPersonLocation: orderObj.deliveryPersonLocation
+      };
+    });
+
     return res.status(200).json({
       message: "Current orders fetched successfully",
-      orders: currentOrders,
+      orders: orders,
       total: currentOrders.length
     });
   } catch (error) {
@@ -896,14 +1027,44 @@ export const getHistoryOrders = async (req, res) => {
       .populate('customer', 'name phone address')
       .populate('branch', 'name address')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id', 'name price discountPrice image quantity unit') // Populate product details
+      .populate('items.inventory')
       .sort({ createdAt: -1 });
 
     console.log(`Found ${historyOrders.length} history orders for delivery partner: ${deliveryPartnerId}`);
 
+    const orders = historyOrders.map(order => {
+      const orderObj = order.toObject();
+      return {
+        _id: orderObj._id,
+        orderId: orderObj.orderId,
+        status: orderObj.status,
+        paymentDetails: {
+          paymentMethod: orderObj.paymentDetails?.paymentMethod || 'online',
+          method: orderObj.paymentDetails?.method
+        },
+        paymentStatus: orderObj.paymentStatus,
+        customer: {
+          name: orderObj.customer?.name || 'Customer'
+        },
+        branch: {
+          name: orderObj.branch?.name || 'Branch',
+          address: orderObj.branch?.address || 'Address'
+        },
+        deliveryLocation: orderObj.deliveryLocation,
+        pickupLocation: orderObj.pickupLocation,
+        items: orderObj.items,
+        itemCount: orderObj.items?.reduce((sum, item) => sum + (item.quantity || item.count || 0), 0) || 0,
+        totalPrice: orderObj.totalPrice,
+        deliveryFee: orderObj.deliveryFee,
+        routeData: orderObj.routeData,
+        createdAt: orderObj.createdAt,
+        updatedAt: orderObj.updatedAt
+      };
+    });
+
     return res.status(200).json({
       message: "Order history fetched successfully",
-      orders: historyOrders,
+      orders: orders,
       total: historyOrders.length
     });
   } catch (error) {
@@ -1221,6 +1382,32 @@ export const cancelOrder = async (req, res) => {
 
     await order.save();
 
+    // Release reserved stock back to inventory (only if order wasn't picked up yet)
+    // If order was in-progress, stock was already deducted so add it back
+    const wasPickedUp = order.deliveryStatus === 'On The Way';
+
+    for (const item of order.items) {
+      if (item.inventory) {
+        if (wasPickedUp) {
+          // Order was picked up - add stock back
+          await Inventory.findByIdAndUpdate(item.inventory, {
+            $inc: { stock: item.quantity }
+          });
+        } else {
+          // Order wasn't picked up - just release reservation
+          await Inventory.findByIdAndUpdate(item.inventory, {
+            $inc: { reservedStock: -item.quantity }
+          });
+        }
+
+        // Re-enable availability if needed
+        const inv = await Inventory.findById(item.inventory);
+        if (inv && inv.stock > 0 && !inv.isAvailable) {
+          await Inventory.findByIdAndUpdate(item.inventory, { isAvailable: true });
+        }
+      }
+    }
+
     // Emit cancellation events
     req.app.get('io').to(order.customer.toString()).emit('orderCancelled', {
       orderId: order._id,
@@ -1281,7 +1468,7 @@ export const getOrderInvoice = async (req, res) => {
       .populate('customer', 'name phone email')
       .populate('branch', 'name address phone')
       .populate('deliveryPartner', 'name phone')
-      .populate('items.id', 'name price discountPrice image unit quantity');
+      .populate('items.inventory');
 
     if (!order) {
       return res.status(404).json({ message: "Order not found" });
@@ -1424,4 +1611,54 @@ const generateRouteCoordinates = (origin, destination, points = 20) => {
     });
   }
   return coordinates;
+};
+
+// Mark COD payment as verified (collected by partner)
+export const collectCodPayment = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const partnerId = req.user._id;
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    if (order.status !== 'delivered') {
+      return res.status(400).json({ message: "Order must be marked as delivered before collecting payment" });
+    }
+
+    if (order.paymentDetails.paymentMethod !== 'cod') {
+      return res.status(400).json({ message: "This is not a COD order" });
+    }
+
+    if (order.paymentStatus === 'verified') {
+      return res.status(400).json({ message: "Payment already collected and verified" });
+    }
+
+    // Verify that the partner collecting is the one assigned
+    if (order.deliveryPartner.toString() !== partnerId.toString()) {
+      return res.status(403).json({ message: "You are not authorized to collect payment for this order" });
+    }
+
+    order.paymentStatus = 'verified';
+    order.paymentDetails.verifiedAt = new Date();
+    order.paymentDetails.method = 'cash';
+    await order.save();
+
+    // Notify rooms
+    req.app.get('io').to(orderId).emit('paymentVerified', {
+      orderId: order._id,
+      paymentStatus: 'verified'
+    });
+
+    return res.status(200).json({
+      message: "Payment collected successfully",
+      order: order
+    });
+  } catch (error) {
+    console.error("Collect COD payment error:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
 };

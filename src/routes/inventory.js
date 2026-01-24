@@ -8,7 +8,8 @@ import {
     updateStock,
     bulkUpdateInventory,
     deleteInventory,
-    getProductAvailability
+    getProductAvailability,
+    validateCartStock
 } from '../controllers/inventory.js';
 
 const router = express.Router();
@@ -18,6 +19,9 @@ router.get('/branch/:branchId', getBranchInventory);
 router.get('/product/:productId/availability', getProductAvailability);
 router.get('/:id', getInventoryById);
 
+// Cart stock validation (public - called from checkout)
+router.post('/validate-cart', validateCartStock);
+
 // Admin routes (protected)
 router.post('/', verifyToken, createInventory);
 router.put('/:id', verifyToken, updateInventory);
@@ -26,3 +30,4 @@ router.post('/bulk-update', verifyToken, bulkUpdateInventory);
 router.delete('/:id', verifyToken, deleteInventory);
 
 export default router;
+

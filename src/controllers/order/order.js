@@ -543,8 +543,24 @@ export const deletePendingOrder = async (req, res) => {
       return res.status(400).json({ message: "Cannot delete order in current status" });
     }
 
+    // Release reserved stock back to inventory before deleting
+    for (const item of order.items) {
+      if (item.inventory) {
+        const updatedInventory = await Inventory.findByIdAndUpdate(
+          item.inventory,
+          { $inc: { reservedStock: -item.quantity } },
+          { new: true }
+        );
+
+        // Re-enable availability if stock is now available
+        if (updatedInventory && updatedInventory.stock > 0 && !updatedInventory.isAvailable) {
+          await Inventory.findByIdAndUpdate(item.inventory, { isAvailable: true });
+        }
+      }
+    }
+
     await Order.findByIdAndDelete(orderId);
-    console.log(`🗑️ Deleted pending order ${orderId} for user ${userId}`);
+    console.log(`🗑️ Deleted pending order ${orderId} for user ${userId} - reserved stock released`);
 
     return res.status(200).json({ message: "Pending order deleted successfully" });
   } catch (error) {

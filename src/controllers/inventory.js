@@ -406,3 +406,145 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
 }
+
+/**
+ * Validate cart items stock availability
+ * Called before checkout to ensure all items are in stock
+ * Returns detailed stock status for each item
+ */
+export const validateCartStock = async (req, res) => {
+    try {
+        const { items } = req.body; // Array of { inventoryId, quantity }
+
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Items array is required"
+            });
+        }
+
+        // Get all inventory items in one query
+        const inventoryIds = items.map(item => item.inventoryId);
+        const inventoryItems = await Inventory.find({ _id: { $in: inventoryIds } })
+            .populate('product', 'name brand images')
+            .lean();
+
+        // Create a map for quick lookup
+        const inventoryMap = new Map();
+        inventoryItems.forEach(inv => {
+            inventoryMap.set(inv._id.toString(), inv);
+        });
+
+        // Validate each item
+        const validationResults = [];
+        let allAvailable = true;
+        let hasOutOfStock = false;
+        let hasInsufficientStock = false;
+
+        for (const item of items) {
+            const inv = inventoryMap.get(item.inventoryId);
+
+            if (!inv) {
+                // Item not found
+                validationResults.push({
+                    inventoryId: item.inventoryId,
+                    requestedQuantity: item.quantity,
+                    available: false,
+                    status: 'NOT_FOUND',
+                    message: 'Product not found',
+                    productName: 'Unknown',
+                    availableStock: 0,
+                    canOrder: 0
+                });
+                allAvailable = false;
+                hasOutOfStock = true;
+                continue;
+            }
+
+            // Calculate available stock (total stock minus reserved)
+            const availableStock = Math.max(0, (inv.stock || 0) - (inv.reservedStock || 0));
+            const requestedQty = item.quantity || 1;
+
+            if (!inv.isAvailable || inv.stock <= 0) {
+                // Out of stock
+                validationResults.push({
+                    inventoryId: item.inventoryId,
+                    requestedQuantity: requestedQty,
+                    available: false,
+                    status: 'OUT_OF_STOCK',
+                    message: `${inv.product?.name || 'Product'} is out of stock`,
+                    productName: inv.product?.name || 'Unknown',
+                    productImage: inv.variant?.images?.[0] || inv.product?.images?.[0] || '',
+                    variantSku: inv.variant?.sku,
+                    packSize: inv.variant?.packSize,
+                    availableStock: 0,
+                    canOrder: 0
+                });
+                allAvailable = false;
+                hasOutOfStock = true;
+            } else if (availableStock < requestedQty) {
+                // Insufficient stock
+                validationResults.push({
+                    inventoryId: item.inventoryId,
+                    requestedQuantity: requestedQty,
+                    available: false,
+                    status: 'INSUFFICIENT_STOCK',
+                    message: `Only ${availableStock} ${inv.variant?.packSize || 'units'} available for ${inv.product?.name || 'Product'}`,
+                    productName: inv.product?.name || 'Unknown',
+                    productImage: inv.variant?.images?.[0] || inv.product?.images?.[0] || '',
+                    variantSku: inv.variant?.sku,
+                    packSize: inv.variant?.packSize,
+                    availableStock: availableStock,
+                    canOrder: availableStock,
+                    price: inv.pricing?.sellingPrice
+                });
+                allAvailable = false;
+                hasInsufficientStock = true;
+            } else {
+                // Available
+                validationResults.push({
+                    inventoryId: item.inventoryId,
+                    requestedQuantity: requestedQty,
+                    available: true,
+                    status: 'AVAILABLE',
+                    message: 'In stock',
+                    productName: inv.product?.name || 'Unknown',
+                    productImage: inv.variant?.images?.[0] || inv.product?.images?.[0] || '',
+                    variantSku: inv.variant?.sku,
+                    packSize: inv.variant?.packSize,
+                    availableStock: availableStock,
+                    canOrder: requestedQty,
+                    price: inv.pricing?.sellingPrice
+                });
+            }
+        }
+
+        // Determine overall status message
+        let overallMessage = 'All items are available';
+        if (hasOutOfStock && hasInsufficientStock) {
+            overallMessage = 'Some items are out of stock or have limited availability';
+        } else if (hasOutOfStock) {
+            overallMessage = 'Some items are out of stock';
+        } else if (hasInsufficientStock) {
+            overallMessage = 'Some items have limited stock';
+        }
+
+        res.json({
+            success: true,
+            allAvailable,
+            hasOutOfStock,
+            hasInsufficientStock,
+            message: overallMessage,
+            items: validationResults,
+            validatedAt: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error validating cart stock:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to validate stock",
+            allAvailable: false
+        });
+    }
+};
+

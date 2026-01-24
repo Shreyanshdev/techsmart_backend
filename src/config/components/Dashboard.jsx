@@ -1,29 +1,150 @@
 import React, { useState, useEffect } from 'react';
 
-// Styled container and card components using inline styles for AdminJS compatibility
-// Colors match AdminJS dark theme: background #1e2226, cards #303641, accent #F5C518
+// Brand Colors
+const BRAND = {
+    primary: '#FF4700',
+    primaryLight: '#FF6B33',
+    primaryDark: '#CC3900',
+    accent: '#4CAF50',
+    accentBlue: '#2196F3',
+    dark: '#1e2226',
+    card: '#303641',
+    cardHover: '#3a4149',
+    border: '#454d5d',
+    textPrimary: '#fff',
+    textSecondary: '#9aa5b1',
+    success: '#4CAF50',
+    warning: '#FFC107',
+    danger: '#f44336'
+};
+
+// CSS Keyframe animations injected via style tag
+const injectStyles = () => {
+    if (document.getElementById('dashboard-animations')) return;
+    const styleEl = document.createElement('style');
+    styleEl.id = 'dashboard-animations';
+    styleEl.textContent = `
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        @keyframes barGrow {
+            from { height: 0; }
+        }
+        .dashboard-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        .dashboard-card:hover {
+            transform: translateY(-4px) !important;
+            box-shadow: 0 12px 24px rgba(0,0,0,0.3) !important;
+            border-color: ${BRAND.primary}40 !important;
+        }
+        .dashboard-btn {
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            position: relative;
+            overflow: hidden;
+        }
+        .dashboard-btn:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 8px 20px ${BRAND.primary}40 !important;
+        }
+        .dashboard-btn:active {
+            transform: translateY(0) !important;
+        }
+        .dashboard-btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        .dashboard-btn:hover::after {
+            width: 300px;
+            height: 300px;
+        }
+        .dashboard-bar {
+            animation: barGrow 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+            transition: all 0.3s ease !important;
+        }
+        .dashboard-bar:hover {
+            filter: brightness(1.2) !important;
+            transform: scaleY(1.05);
+            transform-origin: bottom;
+        }
+        .dashboard-row {
+            transition: all 0.2s ease !important;
+        }
+        .dashboard-row:hover {
+            background: ${BRAND.cardHover} !important;
+        }
+        .stat-value {
+            animation: fadeInUp 0.5s ease-out;
+        }
+        .dashboard-badge {
+            transition: all 0.2s ease !important;
+        }
+        .dashboard-badge:hover {
+            transform: scale(1.1) !important;
+        }
+        .legend-item {
+            transition: all 0.2s ease !important;
+            padding: 8px;
+            border-radius: 8px;
+            margin: -8px;
+        }
+        .legend-item:hover {
+            background: rgba(255,255,255,0.05) !important;
+        }
+        .growth-positive {
+            color: ${BRAND.success} !important;
+        }
+        .growth-negative {
+            color: ${BRAND.danger} !important;
+        }
+    `;
+    document.head.appendChild(styleEl);
+};
+
 const styles = {
     dashboard: {
-        padding: '24px',
-        background: 'transparent', // Inherit from AdminJS
+        padding: '28px',
+        background: 'transparent',
         minHeight: '100vh',
-        fontFamily: "'Roboto', -apple-system, BlinkMacSystemFont, sans-serif"
+        fontFamily: "'Inter', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif"
     },
     header: {
-        marginBottom: '24px'
+        marginBottom: '28px',
+        animation: 'fadeInUp 0.6s ease-out'
     },
     title: {
-        fontSize: '24px',
-        fontWeight: '500',
-        color: '#fff',
+        fontSize: '28px',
+        fontWeight: '700',
+        background: `linear-gradient(135deg, ${BRAND.textPrimary} 0%, ${BRAND.primary} 100%)`,
+        WebkitBackgroundClip: 'text',
+        WebkitTextFillColor: 'transparent',
+        backgroundClip: 'text',
         marginBottom: '8px',
         display: 'flex',
         alignItems: 'center',
-        gap: '10px'
+        gap: '12px'
     },
     subtitle: {
-        color: '#9aa5b1',
-        fontSize: '13px'
+        color: BRAND.textSecondary,
+        fontSize: '13px',
+        letterSpacing: '0.3px'
     },
     statsGrid: {
         display: 'grid',
@@ -32,47 +153,83 @@ const styles = {
         marginBottom: '24px'
     },
     statCard: {
-        background: '#303641',
-        borderRadius: '8px',
+        background: `linear-gradient(145deg, ${BRAND.card} 0%, #282d35 100%)`,
+        borderRadius: '16px',
         padding: '20px',
-        border: '1px solid #454d5d'
+        border: `1px solid ${BRAND.border}`,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        position: 'relative',
+        overflow: 'hidden'
     },
-    statIcon: {
-        fontSize: '20px',
-        marginBottom: '10px'
+    statCardHighlight: {
+        background: `linear-gradient(145deg, ${BRAND.primary}20 0%, ${BRAND.primary}10 100%)`,
+        border: `1px solid ${BRAND.primary}50`
+    },
+    statCardGlow: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        width: '80px',
+        height: '80px',
+        background: `radial-gradient(circle, ${BRAND.primary}20 0%, transparent 70%)`,
+        borderRadius: '50%',
+        transform: 'translate(30%, -30%)'
     },
     statValue: {
         fontSize: '28px',
-        fontWeight: '600',
-        color: '#fff',
-        marginBottom: '4px'
+        fontWeight: '700',
+        color: BRAND.textPrimary,
+        marginBottom: '4px',
+        position: 'relative',
+        zIndex: 1
     },
     statLabel: {
-        color: '#9aa5b1',
-        fontSize: '12px',
+        color: BRAND.textSecondary,
+        fontSize: '11px',
         textTransform: 'uppercase',
-        letterSpacing: '0.5px'
+        letterSpacing: '1px',
+        fontWeight: '500'
     },
-    chartsGrid: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '16px',
-        marginBottom: '24px'
+    statChange: {
+        fontSize: '12px',
+        fontWeight: '600',
+        marginTop: '8px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px'
     },
-    chartCard: {
-        background: '#303641',
-        borderRadius: '8px',
-        padding: '20px',
-        border: '1px solid #454d5d'
-    },
-    chartTitle: {
-        fontSize: '14px',
-        fontWeight: '500',
-        color: '#fff',
+    sectionTitle: {
+        fontSize: '16px',
+        fontWeight: '600',
+        color: BRAND.textPrimary,
         marginBottom: '16px',
         display: 'flex',
         alignItems: 'center',
-        gap: '8px'
+        gap: '10px'
+    },
+    chartsGrid: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+        gap: '20px',
+        marginBottom: '24px'
+    },
+    chartCard: {
+        background: `linear-gradient(145deg, ${BRAND.card} 0%, #282d35 100%)`,
+        borderRadius: '16px',
+        padding: '20px',
+        border: `1px solid ${BRAND.border}`,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+    },
+    chartTitle: {
+        fontSize: '14px',
+        fontWeight: '600',
+        color: BRAND.textPrimary,
+        marginBottom: '16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        paddingBottom: '12px',
+        borderBottom: `1px solid ${BRAND.border}`
     },
     chartContainer: {
         height: '140px',
@@ -80,106 +237,143 @@ const styles = {
         alignItems: 'flex-end',
         gap: '12px',
         justifyContent: 'space-around',
-        marginTop: '20px'
+        marginTop: '16px',
+        padding: '0 8px'
     },
     bar: {
         width: '50px',
-        borderRadius: '4px 4px 0 0',
-        transition: 'height 0.3s ease'
+        borderRadius: '6px 6px 0 0',
+        boxShadow: '0 -4px 12px rgba(0,0,0,0.2)'
     },
     barLabel: {
-        color: '#9aa5b1',
-        fontSize: '11px',
+        color: BRAND.textSecondary,
+        fontSize: '10px',
         textAlign: 'center',
-        marginTop: '8px'
-    },
-    pieContainer: {
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '180px'
-    },
-    legendItem: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        marginBottom: '12px'
-    },
-    legendDot: {
-        width: '10px',
-        height: '10px',
-        borderRadius: '50%'
-    },
-    legendText: {
-        color: '#fff',
-        fontSize: '13px'
-    },
-    legendValue: {
-        color: '#9aa5b1',
-        fontSize: '13px',
-        marginLeft: 'auto',
+        marginTop: '8px',
         fontWeight: '500'
     },
+    listItem: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '12px 0',
+        borderBottom: `1px solid ${BRAND.border}30`
+    },
+    listRank: {
+        width: '24px',
+        height: '24px',
+        borderRadius: '6px',
+        background: BRAND.primary,
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '11px',
+        fontWeight: '700',
+        marginRight: '12px'
+    },
+    listItemName: {
+        flex: 1,
+        color: BRAND.textPrimary,
+        fontSize: '13px',
+        fontWeight: '500'
+    },
+    listItemValue: {
+        color: BRAND.primary,
+        fontSize: '13px',
+        fontWeight: '700'
+    },
     tableCard: {
-        background: '#303641',
-        borderRadius: '8px',
+        background: `linear-gradient(145deg, ${BRAND.card} 0%, #282d35 100%)`,
+        borderRadius: '16px',
         padding: '20px',
-        border: '1px solid #454d5d',
-        marginBottom: '16px'
+        border: `1px solid ${BRAND.border}`,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        marginBottom: '20px',
+        overflow: 'hidden'
     },
     table: {
         width: '100%',
-        borderCollapse: 'collapse'
+        borderCollapse: 'separate',
+        borderSpacing: '0'
     },
     th: {
         textAlign: 'left',
-        padding: '10px 12px',
-        color: '#9aa5b1',
-        fontSize: '11px',
+        padding: '12px 14px',
+        color: BRAND.textSecondary,
+        fontSize: '10px',
         textTransform: 'uppercase',
-        borderBottom: '1px solid #454d5d',
-        fontWeight: '500'
+        letterSpacing: '1px',
+        borderBottom: `2px solid ${BRAND.border}`,
+        fontWeight: '600'
     },
     td: {
-        padding: '10px 12px',
-        color: '#fff',
+        padding: '14px',
+        color: BRAND.textPrimary,
         fontSize: '13px',
-        borderBottom: '1px solid #3a4149'
+        borderBottom: `1px solid ${BRAND.border}40`
     },
     statusBadge: {
-        padding: '4px 8px',
-        borderRadius: '4px',
+        padding: '5px 10px',
+        borderRadius: '16px',
         fontSize: '10px',
         fontWeight: '600',
-        textTransform: 'uppercase'
+        textTransform: 'uppercase',
+        letterSpacing: '0.5px',
+        display: 'inline-block'
     },
     loader: {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
         height: '400px',
-        color: '#fff',
-        fontSize: '16px'
+        color: BRAND.primary,
+        fontSize: '18px',
+        fontWeight: '500'
     },
     quickActions: {
         display: 'flex',
-        gap: '10px',
+        gap: '12px',
         flexWrap: 'wrap',
-        marginBottom: '20px'
+        marginBottom: '24px'
     },
     actionBtn: {
-        background: '#3795BD',
+        background: `linear-gradient(135deg, ${BRAND.primary} 0%, ${BRAND.primaryDark} 100%)`,
         color: '#fff',
         border: 'none',
-        padding: '10px 16px',
-        borderRadius: '6px',
-        fontWeight: '500',
+        padding: '10px 20px',
+        borderRadius: '10px',
+        fontWeight: '600',
         cursor: 'pointer',
         fontSize: '12px',
         textDecoration: 'none',
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '6px'
+        gap: '6px',
+        boxShadow: `0 4px 14px ${BRAND.primary}50`
+    },
+    revenueGrid: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gap: '12px',
+        marginBottom: '8px'
+    },
+    revenueItem: {
+        textAlign: 'center',
+        padding: '12px',
+        background: `${BRAND.dark}80`,
+        borderRadius: '10px'
+    },
+    revenueValue: {
+        fontSize: '16px',
+        fontWeight: '700',
+        color: BRAND.textPrimary
+    },
+    revenueLabel: {
+        fontSize: '10px',
+        color: BRAND.textSecondary,
+        textTransform: 'uppercase',
+        marginTop: '4px'
     }
 };
 
@@ -191,7 +385,10 @@ const STATUS_COLORS = {
     delivered: '#4CAF50',
     confirmed: '#2196F3',
     preparing: '#FF9800',
-    ready: '#00BCD4'
+    ready: '#00BCD4',
+    accepted: '#2196F3',
+    'in-progress': '#FF9800',
+    'awaitconfirmation': '#9C27B0'
 };
 
 const Dashboard = () => {
@@ -200,6 +397,7 @@ const Dashboard = () => {
     const [error, setError] = useState(null);
 
     useEffect(() => {
+        injectStyles();
         fetchStats();
     }, []);
 
@@ -208,11 +406,12 @@ const Dashboard = () => {
             const response = await fetch('/api/v1/admin/dashboard/stats');
             const data = await response.json();
             if (data.success) {
-                setStats(data.data);
+                setStats(data.data || {});
             } else {
                 setError(data.error);
             }
         } catch (err) {
+            console.error('Fetch error:', err);
             setError('Failed to fetch dashboard data');
         } finally {
             setLoading(false);
@@ -227,37 +426,46 @@ const Dashboard = () => {
         }).format(value || 0);
     };
 
-    const formatDate = (date) => {
-        return new Date(date).toLocaleDateString('en-IN', {
-            day: '2-digit',
-            month: 'short',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+    const formatNumber = (value) => {
+        return new Intl.NumberFormat('en-IN').format(value || 0);
     };
 
     if (loading) {
         return React.createElement('div', { style: styles.loader },
-            'Loading Dashboard...'
+            React.createElement('span', null, '⏳ Loading Dashboard...')
         );
     }
 
     if (error) {
         return React.createElement('div', { style: { ...styles.loader, color: '#f44336' } },
-            `Error: ${error}`
+            `❌ Error: ${error}`
         );
     }
 
-    const { totals, ordersByStatus, subscriptionsByStatus, payments, todaysDeliveries, recentOrders, recentSubscriptions } = stats;
+    if (!stats) {
+        return React.createElement('div', { style: styles.loader }, 'No dashboard data available');
+    }
 
-    // Calculate max for bar chart scaling
-    const maxSubscriptionCount = Math.max(...Object.values(subscriptionsByStatus), 1);
-    const maxOrderCount = Math.max(...Object.values(ordersByStatus), 1);
+    const totals = stats.totals || {};
+    const today = stats.today || {};
+    const revenue = stats.revenue || {};
+    const charts = stats.charts || {};
+    const bestSellers = stats.bestSellers || [];
+    const branchPerformance = stats.branchPerformance || [];
+    const ordersByStatus = stats.ordersByStatus || {};
+    const payments = stats.payments || {};
+    const recentOrders = stats.recentOrders || [];
+
+    const dailyRevenue = charts.dailyRevenue || [];
+    const maxDailyRevenue = Math.max(...dailyRevenue.map(d => d.revenue || 0), 1);
+
+    const orderCounts = Object.values(ordersByStatus);
+    const maxOrderCount = Math.max(...(orderCounts.length > 0 ? orderCounts : [1]), 1);
 
     return React.createElement('div', { style: styles.dashboard },
         // Header
         React.createElement('div', { style: styles.header },
-            React.createElement('div', { style: styles.title }, 'Dashboard'),
+            React.createElement('div', { style: styles.title }, '📊 Sales Analytics Dashboard'),
             React.createElement('div', { style: styles.subtitle },
                 `Last updated: ${new Date().toLocaleString('en-IN')}`
             )
@@ -266,188 +474,223 @@ const Dashboard = () => {
         // Quick Actions
         React.createElement('div', { style: styles.quickActions },
             React.createElement('a', {
-                href: '/api/v1/admin/reports/deliveries-by-date',
-                style: styles.actionBtn
-            }, 'Deliveries by Date'),
-            React.createElement('a', {
-                href: '/api/v1/admin/export/subscriptions',
-                style: styles.actionBtn
-            }, 'Export Subscriptions'),
+                href: '/admin/pages/ordersByDate',
+                style: styles.actionBtn,
+                className: 'dashboard-btn'
+            }, '📅 Orders by Date'),
             React.createElement('a', {
                 href: '/api/v1/admin/export/orders',
-                style: styles.actionBtn
-            }, 'Export Orders')
+                style: styles.actionBtn,
+                className: 'dashboard-btn'
+            }, '📥 Export CSV'),
+            React.createElement('a', {
+                href: '/admin/resources/1_AllOrders',
+                style: { ...styles.actionBtn, background: `linear-gradient(135deg, ${BRAND.accentBlue} 0%, #1976D2 100%)` },
+                className: 'dashboard-btn'
+            }, '📋 All Orders')
         ),
 
-        // Stat Cards
-        React.createElement('div', { style: styles.statsGrid },
-            // Orders
-            React.createElement('div', { style: styles.statCard },
-                React.createElement('div', { style: styles.statValue }, totals.orders),
-                React.createElement('div', { style: styles.statLabel }, 'Total Orders')
-            ),
-            // Subscriptions
-            React.createElement('div', { style: styles.statCard },
-                React.createElement('div', { style: styles.statValue }, totals.subscriptions),
-                React.createElement('div', { style: styles.statLabel }, 'Total Subscriptions')
-            ),
-            // Customers
-            React.createElement('div', { style: styles.statCard },
-                React.createElement('div', { style: styles.statValue }, totals.customers),
-                React.createElement('div', { style: styles.statLabel }, 'Customers')
-            ),
-            // Revenue
-            React.createElement('div', { style: styles.statCard },
-                React.createElement('div', { style: styles.statValue }, formatCurrency(totals.revenue)),
-                React.createElement('div', { style: styles.statLabel }, 'Total Revenue')
-            ),
-            // Today's Deliveries
-            React.createElement('div', { style: styles.statCard },
-                React.createElement('div', { style: styles.statValue }, todaysDeliveries),
-                React.createElement('div', { style: styles.statLabel }, "Today's Deliveries")
-            ),
-            // Payment Status
-            React.createElement('div', { style: styles.statCard },
-                React.createElement('div', { style: styles.statValue }, payments.verified),
-                React.createElement('div', { style: styles.statLabel }, 'Verified Payments')
+        // Revenue Overview Section
+        React.createElement('div', { style: { marginBottom: '24px' } },
+            React.createElement('div', { style: styles.sectionTitle }, '💰 Revenue Overview'),
+            React.createElement('div', { style: styles.statsGrid },
+                // Today's Revenue
+                React.createElement('div', { style: { ...styles.statCard, ...styles.statCardHighlight }, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statCardGlow }),
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, formatCurrency(revenue.today)),
+                    React.createElement('div', { style: styles.statLabel }, "Today's Revenue")
+                ),
+                // This Week
+                React.createElement('div', { style: styles.statCard, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statCardGlow }),
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, formatCurrency(revenue.thisWeek)),
+                    React.createElement('div', { style: styles.statLabel }, 'This Week')
+                ),
+                // This Month
+                React.createElement('div', { style: styles.statCard, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statCardGlow }),
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, formatCurrency(revenue.thisMonth)),
+                    React.createElement('div', { style: styles.statLabel }, 'This Month'),
+                    React.createElement('div', {
+                        style: styles.statChange,
+                        className: revenue.growthPercent >= 0 ? 'growth-positive' : 'growth-negative'
+                    },
+                        revenue.growthPercent >= 0 ? '↑' : '↓',
+                        ` ${Math.abs(revenue.growthPercent)}% vs last month`
+                    )
+                ),
+                // Today's Orders
+                React.createElement('div', { style: styles.statCard, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statCardGlow }),
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, today.orders),
+                    React.createElement('div', { style: styles.statLabel }, "Today's Orders")
+                )
             )
         ),
 
-        // Charts Grid
+        // Key Metrics
+        React.createElement('div', { style: { marginBottom: '24px' } },
+            React.createElement('div', { style: styles.sectionTitle }, '📈 Key Metrics'),
+            React.createElement('div', { style: styles.statsGrid },
+                React.createElement('div', { style: styles.statCard, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, formatNumber(totals.orders)),
+                    React.createElement('div', { style: styles.statLabel }, 'Total Orders')
+                ),
+                React.createElement('div', { style: styles.statCard, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, formatNumber(totals.customers)),
+                    React.createElement('div', { style: styles.statLabel }, 'Total Customers')
+                ),
+                React.createElement('div', { style: styles.statCard, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, formatNumber(totals.products)),
+                    React.createElement('div', { style: styles.statLabel }, 'Active Products')
+                ),
+                React.createElement('div', { style: styles.statCard, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, formatNumber(totals.branches)),
+                    React.createElement('div', { style: styles.statLabel }, 'Active Branches')
+                ),
+                React.createElement('div', { style: styles.statCard, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, payments.verified),
+                    React.createElement('div', { style: styles.statLabel }, 'Delivered Orders')
+                ),
+                React.createElement('div', { style: styles.statCard, className: 'dashboard-card' },
+                    React.createElement('div', { style: styles.statValue, className: 'stat-value' }, payments.pending),
+                    React.createElement('div', { style: styles.statLabel }, 'Pending/Active')
+                )
+            )
+        ),
+
+        // Charts Row
         React.createElement('div', { style: styles.chartsGrid },
-            // Subscription Status Chart
-            React.createElement('div', { style: styles.chartCard },
-                React.createElement('div', { style: styles.chartTitle }, 'Subscription Status'),
+            // Daily Revenue Chart
+            React.createElement('div', { style: styles.chartCard, className: 'dashboard-card' },
+                React.createElement('div', { style: styles.chartTitle }, '📊 Daily Revenue (Last 7 Days)'),
                 React.createElement('div', { style: styles.chartContainer },
-                    Object.entries(subscriptionsByStatus).map(([status, count]) =>
-                        React.createElement('div', { key: status, style: { textAlign: 'center' } },
+                    dailyRevenue.slice(-7).map((d, idx) =>
+                        React.createElement('div', { key: d.date, style: { textAlign: 'center' } },
                             React.createElement('div', {
+                                className: 'dashboard-bar',
                                 style: {
                                     ...styles.bar,
-                                    height: `${(count / maxSubscriptionCount) * 100}px`,
-                                    background: STATUS_COLORS[status] || '#666',
-                                    minHeight: '10px'
+                                    height: `${(d.revenue / maxDailyRevenue) * 110}px`,
+                                    background: `linear-gradient(to top, ${BRAND.primary}, ${BRAND.primaryLight})`,
+                                    minHeight: '20px'
                                 }
                             }),
-                            React.createElement('div', { style: styles.barLabel }, status),
-                            React.createElement('div', { style: { ...styles.barLabel, color: '#fff' } }, count)
+                            React.createElement('div', { style: styles.barLabel },
+                                new Date(d.date).toLocaleDateString('en-IN', { weekday: 'short' })
+                            ),
+                            React.createElement('div', { style: { ...styles.barLabel, color: '#fff', fontWeight: '600' } },
+                                `₹${(d.revenue / 1000).toFixed(0)}k`
+                            )
                         )
                     )
                 )
             ),
 
             // Order Status Chart
-            React.createElement('div', { style: styles.chartCard },
-                React.createElement('div', { style: styles.chartTitle }, 'Order Status'),
+            React.createElement('div', { style: styles.chartCard, className: 'dashboard-card' },
+                React.createElement('div', { style: styles.chartTitle }, '📈 Order Status'),
                 React.createElement('div', { style: styles.chartContainer },
-                    Object.entries(ordersByStatus).filter(([_, count]) => count > 0).map(([status, count]) =>
+                    Object.entries(ordersByStatus).filter(([_, count]) => count > 0).slice(0, 6).map(([status, count]) =>
                         React.createElement('div', { key: status, style: { textAlign: 'center' } },
                             React.createElement('div', {
+                                className: 'dashboard-bar',
                                 style: {
                                     ...styles.bar,
-                                    height: `${(count / maxOrderCount) * 100}px`,
-                                    background: STATUS_COLORS[status] || '#666',
-                                    minHeight: '10px'
+                                    width: '45px',
+                                    height: `${(count / maxOrderCount) * 110}px`,
+                                    background: `linear-gradient(to top, ${STATUS_COLORS[status] || '#666'}, ${STATUS_COLORS[status] || '#666'}99)`,
+                                    minHeight: '20px'
                                 }
                             }),
-                            React.createElement('div', { style: styles.barLabel }, status),
-                            React.createElement('div', { style: { ...styles.barLabel, color: '#fff' } }, count)
+                            React.createElement('div', { style: styles.barLabel }, status.slice(0, 8)),
+                            React.createElement('div', { style: { ...styles.barLabel, color: '#fff', fontWeight: '600' } }, count)
+                        )
+                    )
+                )
+            ),
+
+            // Best Selling Products
+            React.createElement('div', { style: styles.chartCard, className: 'dashboard-card' },
+                React.createElement('div', { style: styles.chartTitle }, '🏆 Best Selling Products'),
+                React.createElement('div', null,
+                    bestSellers.slice(0, 5).map((product, idx) =>
+                        React.createElement('div', { key: idx, style: styles.listItem },
+                            React.createElement('div', { style: { ...styles.listRank, background: idx === 0 ? '#FFD700' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : BRAND.primary } }, idx + 1),
+                            React.createElement('div', { style: styles.listItemName }, product.name.slice(0, 25) + (product.name.length > 25 ? '...' : '')),
+                            React.createElement('div', { style: styles.listItemValue }, `${product.quantity} sold`)
+                        )
+                    )
+                )
+            ),
+
+            // Branch Performance
+            React.createElement('div', { style: styles.chartCard, className: 'dashboard-card' },
+                React.createElement('div', { style: styles.chartTitle }, '🏢 Branch Performance'),
+                React.createElement('div', null,
+                    branchPerformance.slice(0, 5).map((branch, idx) =>
+                        React.createElement('div', { key: idx, style: styles.listItem },
+                            React.createElement('div', { style: { ...styles.listRank, background: BRAND.accentBlue } }, idx + 1),
+                            React.createElement('div', { style: styles.listItemName }, branch.name),
+                            React.createElement('div', { style: styles.listItemValue }, formatCurrency(branch.revenue))
                         )
                     )
                 )
             ),
 
             // Payment Methods
-            React.createElement('div', { style: styles.chartCard },
-                React.createElement('div', { style: styles.chartTitle }, 'Payment Methods'),
-                React.createElement('div', { style: { padding: '20px' } },
-                    React.createElement('div', { style: styles.legendItem },
-                        React.createElement('div', { style: { ...styles.legendDot, background: '#4CAF50' } }),
-                        React.createElement('span', { style: styles.legendText }, 'Online'),
-                        React.createElement('span', { style: styles.legendValue }, payments.online)
+            React.createElement('div', { style: styles.chartCard, className: 'dashboard-card' },
+                React.createElement('div', { style: styles.chartTitle }, '💳 Payment Methods'),
+                React.createElement('div', { style: { padding: '12px 0' } },
+                    React.createElement('div', { style: styles.listItem },
+                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                            React.createElement('div', { style: { width: '10px', height: '10px', borderRadius: '50%', background: '#4CAF50' } }),
+                            React.createElement('span', { style: { color: BRAND.textPrimary, fontSize: '13px' } }, 'Online Payments')
+                        ),
+                        React.createElement('span', { style: { color: BRAND.textPrimary, fontWeight: '600' } }, payments.online)
                     ),
-                    React.createElement('div', { style: styles.legendItem },
-                        React.createElement('div', { style: { ...styles.legendDot, background: '#FFC107' } }),
-                        React.createElement('span', { style: styles.legendText }, 'COD'),
-                        React.createElement('span', { style: styles.legendValue }, payments.cod)
-                    ),
-                    React.createElement('div', { style: { ...styles.legendItem, marginTop: '20px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)' } },
-                        React.createElement('div', { style: { ...styles.legendDot, background: '#4CAF50' } }),
-                        React.createElement('span', { style: styles.legendText }, 'Verified'),
-                        React.createElement('span', { style: styles.legendValue }, payments.verified)
-                    ),
-                    React.createElement('div', { style: styles.legendItem },
-                        React.createElement('div', { style: { ...styles.legendDot, background: '#f44336' } }),
-                        React.createElement('span', { style: styles.legendText }, 'Pending'),
-                        React.createElement('span', { style: styles.legendValue }, payments.pending)
+                    React.createElement('div', { style: styles.listItem },
+                        React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+                            React.createElement('div', { style: { width: '10px', height: '10px', borderRadius: '50%', background: '#FFC107' } }),
+                            React.createElement('span', { style: { color: BRAND.textPrimary, fontSize: '13px' } }, 'Cash on Delivery')
+                        ),
+                        React.createElement('span', { style: { color: BRAND.textPrimary, fontWeight: '600' } }, payments.cod)
                     )
                 )
             )
         ),
 
-        // Recent Tables
-        React.createElement('div', { style: styles.chartsGrid },
-            // Recent Orders
-            React.createElement('div', { style: styles.tableCard },
-                React.createElement('div', { style: styles.chartTitle }, 'Recent Orders'),
-                React.createElement('table', { style: styles.table },
-                    React.createElement('thead', null,
-                        React.createElement('tr', null,
-                            React.createElement('th', { style: styles.th }, 'Order ID'),
-                            React.createElement('th', { style: styles.th }, 'Customer'),
-                            React.createElement('th', { style: styles.th }, 'Status'),
-                            React.createElement('th', { style: styles.th }, 'Amount')
-                        )
-                    ),
-                    React.createElement('tbody', null,
-                        recentOrders.map(order =>
-                            React.createElement('tr', { key: order.id },
-                                React.createElement('td', { style: styles.td }, order.id),
-                                React.createElement('td', { style: styles.td }, order.customer),
-                                React.createElement('td', { style: styles.td },
-                                    React.createElement('span', {
-                                        style: {
-                                            ...styles.statusBadge,
-                                            background: STATUS_COLORS[order.status] || '#666',
-                                            color: '#fff'
-                                        }
-                                    }, order.status)
-                                ),
-                                React.createElement('td', { style: styles.td }, formatCurrency(order.amount))
-                            )
-                        )
+        // Recent Orders Table
+        React.createElement('div', { style: styles.tableCard, className: 'dashboard-card' },
+            React.createElement('div', { style: styles.chartTitle }, '🧾 Recent Orders'),
+            React.createElement('table', { style: styles.table },
+                React.createElement('thead', null,
+                    React.createElement('tr', null,
+                        React.createElement('th', { style: styles.th }, 'Order ID'),
+                        React.createElement('th', { style: styles.th }, 'Customer'),
+                        React.createElement('th', { style: styles.th }, 'Branch'),
+                        React.createElement('th', { style: styles.th }, 'Status'),
+                        React.createElement('th', { style: styles.th }, 'Amount')
                     )
-                )
-            ),
-
-            // Recent Subscriptions
-            React.createElement('div', { style: styles.tableCard },
-                React.createElement('div', { style: styles.chartTitle }, 'Recent Subscriptions'),
-                React.createElement('table', { style: styles.table },
-                    React.createElement('thead', null,
-                        React.createElement('tr', null,
-                            React.createElement('th', { style: styles.th }, 'Sub ID'),
-                            React.createElement('th', { style: styles.th }, 'Customer'),
-                            React.createElement('th', { style: styles.th }, 'Status'),
-                            React.createElement('th', { style: styles.th }, 'Bill')
-                        )
-                    ),
-                    React.createElement('tbody', null,
-                        recentSubscriptions.map(sub =>
-                            React.createElement('tr', { key: sub.id },
-                                React.createElement('td', { style: styles.td }, sub.id),
-                                React.createElement('td', { style: styles.td }, sub.customer),
-                                React.createElement('td', { style: styles.td },
-                                    React.createElement('span', {
-                                        style: {
-                                            ...styles.statusBadge,
-                                            background: STATUS_COLORS[sub.status] || '#666',
-                                            color: '#fff'
-                                        }
-                                    }, sub.status)
-                                ),
-                                React.createElement('td', { style: styles.td }, formatCurrency(sub.amount))
-                            )
+                ),
+                React.createElement('tbody', null,
+                    recentOrders.map(order =>
+                        React.createElement('tr', { key: order.id, className: 'dashboard-row' },
+                            React.createElement('td', { style: { ...styles.td, fontWeight: '600', color: BRAND.primary } }, order.id),
+                            React.createElement('td', { style: styles.td }, order.customer),
+                            React.createElement('td', { style: styles.td }, order.branch),
+                            React.createElement('td', { style: styles.td },
+                                React.createElement('span', {
+                                    className: 'dashboard-badge',
+                                    style: {
+                                        ...styles.statusBadge,
+                                        background: `${STATUS_COLORS[order.status] || '#666'}20`,
+                                        color: STATUS_COLORS[order.status] || '#fff',
+                                        border: `1px solid ${STATUS_COLORS[order.status] || '#666'}50`
+                                    }
+                                }, order.status)
+                            ),
+                            React.createElement('td', { style: { ...styles.td, fontWeight: '600' } }, formatCurrency(order.amount))
                         )
                     )
                 )

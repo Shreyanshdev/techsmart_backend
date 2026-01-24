@@ -1,7 +1,7 @@
 import express from 'express';
 import { getAdminOrderInvoice } from '../controllers/admin/invoiceController.js';
 import { getOrdersCSV } from '../controllers/admin/reportController.js';
-import { getDashboardStats, getOrdersJSON } from '../controllers/admin/dashboardController.js';
+import { getDashboardStats, getOrdersJSON, getSalesAnalytics } from '../controllers/admin/dashboardController.js';
 import { requireAdmin } from '../middleware/adminAuth.js';
 
 const router = express.Router();
@@ -12,6 +12,7 @@ router.use(requireAdmin);
 // Dashboard Stats
 router.get('/dashboard/stats', getDashboardStats);
 router.get('/dashboard/orders', getOrdersJSON);
+router.get('/dashboard/analytics', getSalesAnalytics);
 
 // Invoice Preview Routes
 router.get('/preview/order/:orderId', getAdminOrderInvoice);

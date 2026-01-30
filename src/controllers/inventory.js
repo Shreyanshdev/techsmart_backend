@@ -2,6 +2,9 @@ import Inventory from "../models/inventory.js";
 import Product from "../models/product.js";
 import Branch from "../models/branch.js";
 import mongoose from "mongoose";
+import NodeCache from "node-cache";
+
+const stockCache = new NodeCache({ stdTTL: 5 }); // 5 second cache for stock checks
 
 /**
  * Inventory Controller
@@ -257,11 +260,8 @@ export const updateStock = async (req, res) => {
             });
         }
 
-        // Auto-update availability based on stock
-        if (inventory.stock <= 0) {
-            inventory.isAvailable = false;
-            await inventory.save();
-        }
+        // Auto-update availability based on stock via pre-save hook
+        await inventory.save();
 
         res.json({
             success: true,
@@ -408,6 +408,61 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 /**
+ * Update cart item quantity with atomic stock check
+ * Ensures user can only add what's available
+ */
+export const updateCartItemQuantity = async (req, res) => {
+    try {
+        const { inventoryId, requestedQty } = req.body;
+
+        if (!inventoryId || requestedQty === undefined) {
+            return res.status(400).json({
+                success: false,
+                error: "inventoryId and requestedQty are required"
+            });
+        }
+
+        const inv = await Inventory.findById(inventoryId).populate('product', 'name');
+        if (!inv) {
+            return res.status(404).json({
+                success: false,
+                error: "Product variant not found"
+            });
+        }
+
+        const availableStock = Math.max(0, inv.stock || 0);
+        const maxQtyLimit = inv.variant?.maxQtyPerOrder || 0;
+
+        let finalQty = Math.max(0, requestedQty);
+        let message = "";
+
+        // Decision logic: Backend decides the quantity
+        if (finalQty > availableStock) {
+            finalQty = availableStock;
+            message = `Only ${availableStock} items left`;
+        }
+
+        if (maxQtyLimit > 0 && finalQty > maxQtyLimit) {
+            finalQty = maxQtyLimit;
+            message = `Maximum ${maxQtyLimit} items allowed per order`;
+        }
+
+        return res.json({
+            success: true,
+            finalQty,
+            message,
+            availableStock
+        });
+    } catch (error) {
+        console.error("Error updating cart item quantity:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to update quantity"
+        });
+    }
+};
+
+/**
  * Validate cart items stock availability
  * Called before checkout to ensure all items are in stock
  * Returns detailed stock status for each item
@@ -421,6 +476,13 @@ export const validateCartStock = async (req, res) => {
                 success: false,
                 error: "Items array is required"
             });
+        }
+
+        // Caching: Try to get results from cache if same query
+        const cacheKey = `validate_${JSON.stringify(items)}`;
+        const cachedResult = stockCache.get(cacheKey);
+        if (cachedResult) {
+            return res.json(cachedResult);
         }
 
         // Get all inventory items in one query
@@ -461,8 +523,8 @@ export const validateCartStock = async (req, res) => {
                 continue;
             }
 
-            // Calculate available stock (total stock minus reserved)
-            const availableStock = Math.max(0, (inv.stock || 0) - (inv.reservedStock || 0));
+            // Calculate available stock (ignore reservedStock for validation per user request)
+            const availableStock = Math.max(0, inv.stock || 0);
             const requestedQty = item.quantity || 1;
 
             if (!inv.isAvailable || inv.stock <= 0) {
@@ -529,7 +591,7 @@ export const validateCartStock = async (req, res) => {
             overallMessage = 'Some items have limited stock';
         }
 
-        res.json({
+        const response = {
             success: true,
             allAvailable,
             hasOutOfStock,
@@ -537,7 +599,12 @@ export const validateCartStock = async (req, res) => {
             message: overallMessage,
             items: validationResults,
             validatedAt: new Date().toISOString()
-        });
+        };
+
+        // Store in cache for 5 seconds
+        stockCache.set(cacheKey, response);
+
+        res.json(response);
     } catch (error) {
         console.error("Error validating cart stock:", error);
         res.status(500).json({

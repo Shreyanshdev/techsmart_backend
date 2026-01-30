@@ -9,7 +9,8 @@ import {
     bulkUpdateInventory,
     deleteInventory,
     getProductAvailability,
-    validateCartStock
+    validateCartStock,
+    updateCartItemQuantity
 } from '../controllers/inventory.js';
 
 const router = express.Router();
@@ -21,6 +22,7 @@ router.get('/:id', getInventoryById);
 
 // Cart stock validation (public - called from checkout)
 router.post('/validate-cart', validateCartStock);
+router.post('/update-item-qty', updateCartItemQuantity);
 
 // Admin routes (protected)
 router.post('/', verifyToken, createInventory);

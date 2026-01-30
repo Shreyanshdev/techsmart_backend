@@ -1,11 +1,174 @@
 import Product from "../../models/product.js";
 import Inventory from "../../models/inventory.js";
 import Branch from "../../models/branch.js";
+import mongoose from "mongoose";
 
 /**
  * Product Controller
  * Updated for new schema: Products are master data, pricing/stock in Inventory
  */
+
+/**
+ * GET /products/feed - Cursor-based paginated product feed
+ * 
+ * Industry-grade pagination like Zepto/Blinkit:
+ * - Cursor-based (no offset issues with new data)
+ * - Lightweight response (only data needed for cards)
+ * - Branch-based filtering (required, single source of truth)
+ * - Only returns products with available inventory
+ * 
+ * Query params:
+ *   - branchId (required): Branch to fetch inventory from
+ *   - limit: Number of products to fetch (default: 20, max: 50)
+ *   - cursor: Last product ID from previous page (for pagination)
+ *   - category: Optional category filter
+ * 
+ * Response:
+ *   - products: Array of lightweight product objects
+ *   - nextCursor: ID of last product (use for next page)
+ *   - hasMore: Boolean indicating if more products exist
+ */
+export const getProductsFeed = async (req, res) => {
+    const {
+        branchId,
+        branch: branchQuery,
+        limit = 20,
+        cursor,
+        category,
+        brand
+    } = req.query;
+
+    const effectiveBranchId = branchId || branchQuery;
+    const pageLimit = Math.min(parseInt(limit) || 20, 50); // Max 50 items per request
+
+    try {
+        // Branch is REQUIRED for feed endpoint
+        if (!effectiveBranchId) {
+            return res.status(400).json({
+                message: "branchId is required for product feed",
+                hint: "Pass branchId query parameter"
+            });
+        }
+
+        // Validate branchId is valid ObjectId
+        if (!mongoose.Types.ObjectId.isValid(effectiveBranchId)) {
+            return res.status(400).json({
+                message: "Invalid branchId format"
+            });
+        }
+
+        // Step 1: Find available inventory for this branch
+        // IMPORTANT: Convert branchId string to ObjectId for aggregation matching
+        const branchObjectId = new mongoose.Types.ObjectId(effectiveBranchId);
+
+        let inventoryQuery = {
+            branch: branchObjectId,
+            isAvailable: true,
+            stock: { $gt: 0 }
+        };
+
+        // Fetch inventory with product populated (lightweight fields only)
+        let inventoryAggregation = [
+            { $match: inventoryQuery },
+            // Join with products
+            {
+                $lookup: {
+                    from: 'products',
+                    localField: 'product',
+                    foreignField: '_id',
+                    as: 'productData'
+                }
+            },
+            { $unwind: '$productData' },
+            // Filter active products only
+            { $match: { 'productData.isActive': true } },
+        ];
+
+        // Category filter
+        if (category) {
+            if (mongoose.Types.ObjectId.isValid(category)) {
+                inventoryAggregation.push({
+                    $match: { 'productData.category': new mongoose.Types.ObjectId(category) }
+                });
+            } else {
+                // Support category by name/slug if needed (optional)
+                inventoryAggregation.push({
+                    $match: {
+                        $or: [
+                            { 'productData.categoryName': { $regex: category, $options: 'i' } },
+                            { 'productData.subCategory': { $regex: category, $options: 'i' } }
+                        ]
+                    }
+                });
+            }
+        }
+
+        // Brand filter
+        if (brand) {
+            inventoryAggregation.push({
+                $match: { 'productData.brand': { $regex: new RegExp(`^${brand}$`, 'i') } }
+            });
+        }
+
+        // Sort by inventory _id for consistent cursor pagination (no grouping - flattened)
+        inventoryAggregation.push({ $sort: { '_id': 1 } });
+
+        // Cursor-based pagination: fetch items after cursor
+        if (cursor) {
+            if (mongoose.Types.ObjectId.isValid(cursor)) {
+                inventoryAggregation.push({
+                    $match: { '_id': { $gt: new mongoose.Types.ObjectId(cursor) } }
+                });
+            }
+        }
+
+        // Limit + 1 to check if there are more items
+        inventoryAggregation.push({ $limit: pageLimit + 1 });
+
+        // Project flattened response - each variant is its own product entry
+        inventoryAggregation.push({
+            $project: {
+                '_id': '$productData._id',
+                'inventoryId': '$_id',
+                'name': '$productData.name',
+                'brand': '$productData.brand',
+                'image': { $arrayElemAt: ['$productData.images', 0] },
+                'images': '$productData.images',
+                'shortDescription': '$productData.shortDescription',
+                'category': '$productData.category',
+                'rating': '$productData.rating',
+                'tags': '$productData.tags',
+                'variant': '$variant',
+                'pricing': '$pricing',
+                'stock': '$stock',
+                'isAvailable': '$isAvailable'
+            }
+        });
+
+        const results = await Inventory.aggregate(inventoryAggregation);
+
+        // Check if there are more items
+        const hasMore = results.length > pageLimit;
+        const products = hasMore ? results.slice(0, pageLimit) : results;
+
+        // Get next cursor (last item's inventoryId - NOT _id which is productId)
+        const nextCursor = products.length > 0
+            ? products[products.length - 1].inventoryId.toString()
+            : null;
+
+        return res.status(200).json({
+            products,
+            nextCursor,
+            hasMore,
+            count: products.length
+        });
+
+    } catch (error) {
+        console.error("Error fetching products feed:", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+};
+
 
 // Get products by category ID (with optional branch for inventory)
 export const getProductByCategoryId = async (req, res) => {
@@ -15,66 +178,92 @@ export const getProductByCategoryId = async (req, res) => {
 
     try {
         const sortOrder = order === 'desc' ? -1 : 1;
-        const skip = (page - 1) * limit;
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const intLimit = parseInt(limit);
 
-        const products = await Product.find({
-            category: categoryId,
-            isActive: true
-        })
+        if (effectiveBranchId) {
+            const branchObjectId = new mongoose.Types.ObjectId(effectiveBranchId);
+
+            const inventoryAggregation = [
+                {
+                    $match: {
+                        branch: branchObjectId,
+                        isAvailable: true,
+                        stock: { $gt: 0 }
+                    }
+                },
+                {
+                    $lookup: {
+                        from: 'products',
+                        localField: 'product',
+                        foreignField: '_id',
+                        as: 'productData'
+                    }
+                },
+                { $unwind: '$productData' },
+                {
+                    $match: {
+                        'productData.isActive': true,
+                        'productData.category': new mongoose.Types.ObjectId(categoryId)
+                    }
+                },
+                { $sort: { [sort === 'createdAt' ? 'createdAt' : `productData.${sort}`]: sortOrder } },
+                { $limit: intLimit + 1 },
+                {
+                    $project: {
+                        '_id': '$productData._id',
+                        'inventoryId': '$_id',
+                        'name': '$productData.name',
+                        'brand': '$productData.brand',
+                        'image': { $arrayElemAt: ['$productData.images', 0] },
+                        'images': '$productData.images',
+                        'shortDescription': '$productData.shortDescription',
+                        'category': '$productData.category',
+                        'rating': '$productData.rating',
+                        'tags': '$productData.tags',
+                        'variant': '$variant',
+                        'pricing': '$pricing',
+                        'stock': '$stock',
+                        'isAvailable': '$isAvailable'
+                    }
+                }
+            ];
+
+            const results = await Inventory.aggregate(inventoryAggregation);
+
+            // Check if there are more items
+            const hasMore = results.length > intLimit;
+            const products = hasMore ? results.slice(0, intLimit) : results;
+
+            // Get next cursor
+            const nextCursor = products.length > 0
+                ? products[products.length - 1].inventoryId.toString()
+                : null;
+
+            return res.status(200).json({
+                products,
+                nextCursor,
+                hasMore,
+                count: products.length
+            });
+        }
+
+        // Fallback: no branch - return products without inventory
+        const products = await Product.find({ category: categoryId, isActive: true })
             .populate('category', 'name')
             .sort({ [sort]: sortOrder })
             .skip(skip)
-            .limit(parseInt(limit))
-            .exec();
-
-        const total = await Product.countDocuments({
-            category: categoryId,
-            isActive: true
-        });
-
-        // Always attempt to enrich with inventory data
-        const productIds = products.map(p => p._id);
-
-        let inventoryQuery = {
-            product: { $in: productIds },
-            isAvailable: true
-        };
-
-        if (effectiveBranchId) {
-            inventoryQuery.branch = effectiveBranchId;
-        }
-
-        const inventory = await Inventory.find(inventoryQuery).sort({ 'pricing.sellingPrice': 1 });
-
-        const inventoryMap = {};
-        inventory.forEach(inv => {
-            const pid = inv.product.toString();
-            if (!inventoryMap[pid]) {
-                inventoryMap[pid] = [];
-            }
-            inventoryMap[pid].push({
-                _id: inv._id,
-                inventoryId: inv._id,
-                variant: inv.variant,
-                pricing: inv.pricing,
-                stock: inv.stock,
-                isAvailable: inv.isAvailable
-            });
-        });
-
-        const enrichedProducts = products.map(product => ({
-            ...product.toObject(),
-            variants: inventoryMap[product._id.toString()] || []
-        }));
+            .limit(intLimit);
+        const total = await Product.countDocuments({ category: categoryId, isActive: true });
 
         return res.status(200).json({
-            products: enrichedProducts,
+            products,
             pagination: {
                 currentPage: parseInt(page),
-                totalPages: Math.ceil(total / limit),
+                totalPages: Math.ceil(total / intLimit),
                 totalProducts: total,
-                hasNext: page < Math.ceil(total / limit),
-                hasPrev: page > 1
+                hasNext: parseInt(page) < Math.ceil(total / intLimit),
+                hasPrev: parseInt(page) > 1
             }
         });
     } catch (error) {
@@ -271,67 +460,124 @@ export const searchProducts = async (req, res) => {
 
     try {
         const sortOrder = order === 'desc' ? -1 : 1;
-        const skip = (page - 1) * limit;
+        const skip = (page - 1) * parseInt(limit);
+        const intLimit = parseInt(limit);
 
+        // If branchId provided, use aggregation for flattened products
+        if (effectiveBranchId) {
+            const branchObjectId = new mongoose.Types.ObjectId(effectiveBranchId);
+
+            // Build product match conditions
+            const productMatch = { 'productData.isActive': true };
+            if (q) {
+                productMatch.$or = [
+                    { 'productData.name': { $regex: q, $options: 'i' } },
+                    { 'productData.brand': { $regex: q, $options: 'i' } },
+                    { 'productData.shortDescription': { $regex: q, $options: 'i' } }
+                ];
+            }
+            if (tags) {
+                const tagArray = tags.split(',').map(tag => tag.trim().toLowerCase());
+                productMatch['productData.tags'] = { $in: tagArray };
+            }
+            if (category) {
+                productMatch['productData.category'] = new mongoose.Types.ObjectId(category);
+            }
+
+            const inventoryAggregation = [
+                {
+                    $match: {
+                        branch: branchObjectId,
+                        isAvailable: true,
+                        stock: { $gt: 0 }
+                    }
+                },
+                {
+                    $lookup: {
+                        from: 'products',
+                        localField: 'product',
+                        foreignField: '_id',
+                        as: 'productData'
+                    }
+                },
+                { $unwind: '$productData' },
+                { $match: productMatch },
+                { $sort: { [`productData.${sort}`]: sortOrder } },
+                { $skip: skip },
+                { $limit: intLimit },
+                {
+                    $project: {
+                        '_id': '$productData._id',
+                        'inventoryId': '$_id',
+                        'name': '$productData.name',
+                        'brand': '$productData.brand',
+                        'image': { $arrayElemAt: ['$productData.images', 0] },
+                        'images': '$productData.images',
+                        'shortDescription': '$productData.shortDescription',
+                        'category': '$productData.category',
+                        'rating': '$productData.rating',
+                        'tags': '$productData.tags',
+                        'variant': '$variant',
+                        'pricing': '$pricing',
+                        'stock': '$stock',
+                        'isAvailable': '$isAvailable'
+                    }
+                }
+            ];
+
+            const products = await Inventory.aggregate(inventoryAggregation);
+
+            // Count total for pagination (without skip/limit)
+            const countAggregation = [
+                { $match: { branch: branchObjectId, isAvailable: true, stock: { $gt: 0 } } },
+                { $lookup: { from: 'products', localField: 'product', foreignField: '_id', as: 'productData' } },
+                { $unwind: '$productData' },
+                { $match: productMatch },
+                { $count: 'total' }
+            ];
+            const countResult = await Inventory.aggregate(countAggregation);
+            const total = countResult[0]?.total || 0;
+
+            return res.status(200).json({
+                products,
+                pagination: {
+                    currentPage: parseInt(page),
+                    totalPages: Math.ceil(total / intLimit),
+                    totalProducts: total,
+                    hasNext: parseInt(page) < Math.ceil(total / intLimit),
+                    hasPrev: parseInt(page) > 1
+                }
+            });
+        }
+
+        // Fallback: no branch - return products without inventory (original behavior)
         let filter = { isActive: true };
-
-        // Text search
         if (q) {
             filter.$text = { $search: q };
         }
-
-        // Tag search
         if (tags) {
             const tagArray = tags.split(',').map(tag => tag.trim().toLowerCase());
             filter.tags = { $in: tagArray };
         }
-
-        // Category filter
         if (category) {
             filter.category = category;
         }
 
-        let query = Product.find(filter)
+        const products = await Product.find(filter)
             .populate('category', 'name')
             .sort(q ? { score: { $meta: 'textScore' } } : { [sort]: sortOrder })
             .skip(skip)
-            .limit(parseInt(limit));
-
-        const products = await query.exec();
+            .limit(intLimit);
         const total = await Product.countDocuments(filter);
 
-        // Enrich with inventory if branchId provided
-        let enrichedProducts = products;
-        if (effectiveBranchId) {
-            const productIds = products.map(p => p._id);
-            const inventory = await Inventory.find({
-                branch: effectiveBranchId,
-                product: { $in: productIds },
-                isAvailable: true
-            });
-
-            const inventoryMap = {};
-            inventory.forEach(inv => {
-                if (!inventoryMap[inv.product.toString()]) {
-                    inventoryMap[inv.product.toString()] = [];
-                }
-                inventoryMap[inv.product.toString()].push(inv);
-            });
-
-            enrichedProducts = products.map(product => ({
-                ...product.toObject(),
-                variants: inventoryMap[product._id.toString()] || []
-            }));
-        }
-
         return res.status(200).json({
-            products: enrichedProducts,
+            products,
             pagination: {
                 currentPage: parseInt(page),
-                totalPages: Math.ceil(total / limit),
+                totalPages: Math.ceil(total / intLimit),
                 totalProducts: total,
-                hasNext: page < Math.ceil(total / limit),
-                hasPrev: page > 1
+                hasNext: parseInt(page) < Math.ceil(total / intLimit),
+                hasPrev: parseInt(page) > 1
             }
         });
     } catch (error) {
@@ -343,153 +589,251 @@ export const searchProducts = async (req, res) => {
 // Get related products (uses manually set relatedProducts array, with fallback to category)
 export const getRelatedProducts = async (req, res) => {
     const { productId } = req.params;
-    const { limit = 8, branchId, branch: branchQuery } = req.query;
+    const { page = 1, limit = 8, branchId, branch: branchQuery } = req.query;
     const effectiveBranchId = branchId || branchQuery;
+    const intPage = parseInt(page);
+    const intLimit = parseInt(limit);
+    const skip = (intPage - 1) * intLimit;
 
     try {
-        const product = await Product.findById(productId).populate('relatedProducts', 'name images brand shortDescription category description variants attributes otherInformation');
+        const product = await Product.findById(productId);
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
         }
 
-        let relatedProducts = [];
-
-        // First, use manually set related products if available
-        if (product.relatedProducts && product.relatedProducts.length > 0) {
-            relatedProducts = product.relatedProducts.filter(p => p && p.isActive !== false);
-        }
-
-        // Fallback to category-based if no manual relations or not enough
-        if (relatedProducts.length < parseInt(limit)) {
-            const additionalNeeded = parseInt(limit) - relatedProducts.length;
-            const existingIds = relatedProducts.map(p => p._id.toString());
-            existingIds.push(productId);
-
-            const categoryRelated = await Product.find({
-                $or: [
-                    { category: product.category },
-                    { subCategory: product.subCategory }
-                ],
-                _id: { $nin: existingIds },
-                isActive: true
-            })
-                .populate('category', 'name')
-                .limit(additionalNeeded);
-
-            relatedProducts = [...relatedProducts, ...categoryRelated];
-        }
-
-        // Always try to enrich with inventory - look for any available branch if none specified
-        const productIds = relatedProducts.map(p => p._id);
-
-        let inventoryQuery = {
-            product: { $in: productIds },
-            isAvailable: true
-        };
-
+        // If branchId provided, use aggregation for flattened products
         if (effectiveBranchId) {
-            inventoryQuery.branch = effectiveBranchId;
+            const branchObjectId = new mongoose.Types.ObjectId(effectiveBranchId);
+            const productObjectId = new mongoose.Types.ObjectId(productId);
+            const manualIds = (product.relatedProducts || []).map(id => new mongoose.Types.ObjectId(id));
+
+            const inventoryAggregation = [
+                {
+                    $match: {
+                        branch: branchObjectId,
+                        isAvailable: true,
+                        stock: { $gt: 0 }
+                    }
+                },
+                {
+                    $lookup: {
+                        from: 'products',
+                        localField: 'product',
+                        foreignField: '_id',
+                        as: 'productData'
+                    }
+                },
+                { $unwind: '$productData' },
+                {
+                    $match: {
+                        'productData.isActive': true,
+                        'productData._id': { $ne: productObjectId },
+                        $or: [
+                            { 'productData._id': { $in: manualIds } },
+                            { 'productData.category': product.category },
+                            { 'productData.brand': product.brand }
+                        ]
+                    }
+                },
+                { $sort: { 'pricing.sellingPrice': 1 } },
+                { $skip: skip },
+                { $limit: intLimit },
+                {
+                    $project: {
+                        '_id': '$productData._id',
+                        'inventoryId': '$_id',
+                        'name': '$productData.name',
+                        'brand': '$productData.brand',
+                        'image': { $arrayElemAt: ['$productData.images', 0] },
+                        'images': '$productData.images',
+                        'shortDescription': '$productData.shortDescription',
+                        'category': '$productData.category',
+                        'rating': '$productData.rating',
+                        'variant': '$variant',
+                        'pricing': '$pricing',
+                        'stock': '$stock',
+                        'isAvailable': '$isAvailable'
+                    }
+                }
+            ];
+
+            const products = await Inventory.aggregate(inventoryAggregation);
+
+            // Count total
+            const countAggregation = [
+                { $match: { branch: branchObjectId, isAvailable: true, stock: { $gt: 0 } } },
+                { $lookup: { from: 'products', localField: 'product', foreignField: '_id', as: 'productData' } },
+                { $unwind: '$productData' },
+                {
+                    $match: {
+                        'productData.isActive': true,
+                        'productData._id': { $ne: productObjectId },
+                        $or: [
+                            { 'productData._id': { $in: manualIds } },
+                            { 'productData.category': product.category },
+                            { 'productData.brand': product.brand }
+                        ]
+                    }
+                },
+                { $count: 'total' }
+            ];
+            const countResult = await Inventory.aggregate(countAggregation);
+            const total = countResult[0]?.total || 0;
+
+            return res.status(200).json({
+                products,
+                pagination: {
+                    currentPage: intPage,
+                    totalPages: Math.ceil(total / intLimit),
+                    totalProducts: total,
+                    hasNext: intPage < Math.ceil(total / intLimit),
+                    hasPrev: intPage > 1
+                }
+            });
         }
 
-        const inventory = await Inventory.find(inventoryQuery).sort({ 'pricing.sellingPrice': 1 });
+        // Fallback: no branch - return products without inventory
+        const manualIds = (product.relatedProducts || []).filter(id => id.toString() !== productId);
+        const categoryRelated = await Product.find({
+            $or: [
+                { _id: { $in: manualIds } },
+                { category: product.category },
+                { brand: product.brand }
+            ],
+            _id: { $ne: productId },
+            isActive: true
+        })
+            .populate('category', 'name')
+            .skip(skip)
+            .limit(intLimit);
 
-        // Group all variants by product
-        const inventoryMap = {};
-        inventory.forEach(inv => {
-            const pid = inv.product.toString();
-            if (!inventoryMap[pid]) {
-                inventoryMap[pid] = [];
-            }
-            inventoryMap[pid].push({
-                _id: inv._id,
-                inventoryId: inv._id,
-                variant: inv.variant,
-                pricing: inv.pricing,
-                stock: inv.stock,
-                isAvailable: inv.isAvailable
-            });
+        const total = await Product.countDocuments({
+            $or: [
+                { _id: { $in: manualIds } },
+                { category: product.category },
+                { brand: product.brand }
+            ],
+            _id: { $ne: productId },
+            isActive: true
         });
 
-        const enrichedProducts = relatedProducts.map(p => ({
-            ...(p.toObject ? p.toObject() : p),
-            variants: inventoryMap[p._id.toString()] || []
-        }));
-
-        return res.status(200).json(enrichedProducts);
+        return res.status(200).json({
+            products: categoryRelated,
+            pagination: {
+                currentPage: intPage,
+                totalPages: Math.ceil(total / intLimit),
+                totalProducts: total,
+                hasNext: intPage < Math.ceil(total / intLimit),
+                hasPrev: intPage > 1
+            }
+        });
     } catch (error) {
         console.error("Error fetching related products:", error);
         return res.status(500).json({ message: "Internal server error" });
     }
 };
-
 // Get products by brand name
 export const getProductsByBrand = async (req, res) => {
     const { brandName } = req.params;
     const { page = 1, limit = 20, branchId, branch: branchQuery } = req.query;
     const effectiveBranchId = branchId || branchQuery;
+    const intPage = parseInt(page);
+    const intLimit = parseInt(limit);
 
     try {
-        const skip = (page - 1) * limit;
+        const skip = (intPage - 1) * intLimit;
 
-        // Find products by brand (case-insensitive)
+        if (effectiveBranchId) {
+            const branchObjectId = new mongoose.Types.ObjectId(effectiveBranchId);
+
+            const inventoryAggregation = [
+                {
+                    $match: {
+                        branch: branchObjectId,
+                        isAvailable: true,
+                        stock: { $gt: 0 }
+                    }
+                },
+                {
+                    $lookup: {
+                        from: 'products',
+                        localField: 'product',
+                        foreignField: '_id',
+                        as: 'productData'
+                    }
+                },
+                { $unwind: '$productData' },
+                {
+                    $match: {
+                        'productData.isActive': true,
+                        'productData.brand': { $regex: new RegExp(`^${brandName}$`, 'i') }
+                    }
+                },
+                { $sort: { 'pricing.sellingPrice': 1 } },
+                { $limit: intLimit + 1 },
+                {
+                    $project: {
+                        '_id': '$productData._id',
+                        'inventoryId': '$_id',
+                        'name': '$productData.name',
+                        'brand': '$productData.brand',
+                        'image': { $arrayElemAt: ['$productData.images', 0] },
+                        'images': '$productData.images',
+                        'shortDescription': '$productData.shortDescription',
+                        'category': '$productData.category',
+                        'rating': '$productData.rating',
+                        'tags': '$productData.tags',
+                        'variant': '$variant',
+                        'pricing': '$pricing',
+                        'stock': '$stock',
+                        'isAvailable': '$isAvailable'
+                    }
+                }
+            ];
+
+            const results = await Inventory.aggregate(inventoryAggregation);
+
+            // Check if there are more items
+            const hasMore = results.length > intLimit;
+            const products = hasMore ? results.slice(0, intLimit) : results;
+
+            // Get next cursor
+            const nextCursor = products.length > 0
+                ? products[products.length - 1].inventoryId.toString()
+                : null;
+
+            return res.status(200).json({
+                brand: brandName,
+                products,
+                nextCursor,
+                hasMore,
+                count: products.length
+            });
+        }
+
+        // Fallback: no branch - return products without inventory
         const products = await Product.find({
             brand: { $regex: new RegExp(`^${brandName}$`, 'i') },
             isActive: true
         })
             .populate('category', 'name')
             .skip(skip)
-            .limit(parseInt(limit));
+            .limit(intLimit);
 
         const total = await Product.countDocuments({
             brand: { $regex: new RegExp(`^${brandName}$`, 'i') },
             isActive: true
         });
 
-        // Always try to enrich with inventory data
-        const productIds = products.map(p => p._id);
-
-        let inventoryQuery = {
-            product: { $in: productIds },
-            isAvailable: true
-        };
-
-        if (effectiveBranchId) {
-            inventoryQuery.branch = effectiveBranchId;
-        }
-
-        const inventory = await Inventory.find(inventoryQuery).sort({ 'pricing.sellingPrice': 1 });
-
-        // Group all variants by product
-        const inventoryMap = {};
-        inventory.forEach(inv => {
-            const pid = inv.product.toString();
-            if (!inventoryMap[pid]) {
-                inventoryMap[pid] = [];
-            }
-            inventoryMap[pid].push({
-                _id: inv._id,
-                inventoryId: inv._id,
-                variant: inv.variant,
-                pricing: inv.pricing,
-                stock: inv.stock,
-                isAvailable: inv.isAvailable
-            });
-        });
-
-        const enrichedProducts = products.map(product => ({
-            ...product.toObject(),
-            variants: inventoryMap[product._id.toString()] || []
-        }));
-
         return res.status(200).json({
             brand: brandName,
-            products: enrichedProducts,
+            products,
             pagination: {
-                currentPage: parseInt(page),
-                totalPages: Math.ceil(total / limit),
+                currentPage: intPage,
+                totalPages: Math.ceil(total / intLimit),
                 totalProducts: total,
-                hasNext: page < Math.ceil(total / limit),
-                hasPrev: page > 1
+                hasNext: intPage < Math.ceil(total / intLimit),
+                hasPrev: intPage > 1
             }
         });
     } catch (error) {

@@ -109,20 +109,20 @@ export const getWishlist = async (req, res) => {
 
     const wishlistedInventories = user.wishlist.filter(item => item && item.product);
 
+    // Return flattened products with embedded inventory data
     const enrichedProducts = wishlistedInventories.map(inventory => {
       const productObj = inventory.product.toObject ? inventory.product.toObject() : inventory.product;
       const invObj = inventory.toObject ? inventory.toObject() : inventory;
 
       return {
         ...productObj,
-        variants: [{
-          _id: invObj._id,
-          inventoryId: invObj._id,
-          variant: invObj.variant,
-          pricing: invObj.pricing,
-          stock: invObj.stock,
-          isAvailable: invObj.isAvailable
-        }]
+        // Flatten: embed inventory data directly on product
+        inventoryId: invObj._id,
+        variant: invObj.variant,
+        pricing: invObj.pricing,
+        stock: invObj.stock,
+        isAvailable: invObj.isAvailable,
+        image: productObj.images?.[0] || productObj.image
       };
     });
 

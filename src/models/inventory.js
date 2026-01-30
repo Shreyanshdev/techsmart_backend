@@ -35,6 +35,11 @@ const variantSchema = new mongoose.Schema({
         type: String,
         description: "Image URLs for this variant"
     }],
+    maxQtyPerOrder: {
+        type: Number,
+        default: 0,
+        description: "Maximum quantity allowed per order (0 for unlimited)"
+    },
     handling: {
         fragile: { type: Boolean, default: false },
         cold: { type: Boolean, default: false },
@@ -213,6 +218,8 @@ inventorySchema.pre('save', async function (next) {
 inventorySchema.pre('save', function (next) {
     if (this.stock <= 0) {
         this.isAvailable = false;
+    } else {
+        this.isAvailable = true;
     }
     next();
 });

@@ -13,13 +13,18 @@ import {
     getBranchProducts,
     createProduct,
     updateProduct,
-    deleteProduct
+    deleteProduct,
+    getProductsFeed
 } from "../controllers/product/product.js";
 
 const router = express.Router();
 
 // IMPORTANT: Specific routes MUST come before parameterized routes
 // Otherwise /:productId will match everything
+
+// ===== OPTIMIZED FEED ENDPOINT (Cursor-based pagination) =====
+// This is the primary endpoint for app home/category screens
+router.get("/feed", getProductsFeed);
 
 // Search and filter routes (must come first)
 router.get("/search", searchProducts);
@@ -36,6 +41,7 @@ router.get("/branch/:branchId", getBranchProducts);
 
 // Basic product routes
 router.get("/", getAllProducts);
+
 
 // Admin routes (protected)
 router.post("/", verifyToken, createProduct);

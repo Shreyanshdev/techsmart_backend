@@ -15,8 +15,11 @@ import {
 } from '../../utils/validators.js';
 
 // --- MAIN CREATE ORDER LOGIC ---
-// Updated for new inventory-based schema
+// Updated for new inventory-based schema with transactional safety
 export const createOrder = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { userId, items, branchId, totalPrice, addressId, deliveryFee, couponCode, couponDiscount } = req.body;
 
@@ -81,30 +84,46 @@ export const createOrder = async (req, res) => {
       address: branchData.address || branchData.name || "Not provided"
     };
 
-    // Validate inventory items and check stock
-    const inventoryIds = items.map(item => item.inventoryId);
-    const inventoryItems = await Inventory.find({ _id: { $in: inventoryIds } })
-      .populate('product', 'name brand images tags');
-
-    if (inventoryItems.length !== items.length) {
-      return res.status(400).json({ message: "Some inventory items not found" });
-    }
-
-    // Validate stock availability
+    // Validate stock and price (Hard Check) - inside transaction
     const orderItems = [];
-    for (const item of items) {
-      const inv = inventoryItems.find(i => i._id.toString() === item.inventoryId);
+    const stockIssues = [];
 
-      if (!inv.isAvailable) {
-        return res.status(400).json({
-          message: `Item ${inv.product?.name || 'Unknown'} is not available`
-        });
+    for (const item of items) {
+      // Find AND lock or at least check fresh stock within session
+      const inv = await Inventory.findById(item.inventoryId)
+        .populate('product', 'name brand images tags')
+        .session(session);
+
+      if (!inv) {
+        stockIssues.push({ name: 'Unknown', status: 'NOT_FOUND' });
+        continue;
       }
 
-      if (inv.stock < item.quantity) {
-        return res.status(400).json({
-          message: `Insufficient stock for ${inv.product?.name}. Available: ${inv.stock}`
+      if (!inv.isAvailable || inv.stock <= 0) {
+        stockIssues.push({ name: inv.product?.name, status: 'OUT_OF_STOCK' });
+        continue;
+      }
+
+      const requestedQty = item.quantity;
+      const availableStock = inv.stock;
+      const maxQtyLimit = inv.variant?.maxQtyPerOrder || 0;
+
+      if (availableStock < requestedQty) {
+        stockIssues.push({
+          name: inv.product?.name,
+          status: 'INSUFFICIENT_STOCK',
+          available: availableStock
         });
+        continue;
+      }
+
+      if (maxQtyLimit > 0 && requestedQty > maxQtyLimit) {
+        stockIssues.push({
+          name: inv.product?.name,
+          status: 'LIMIT_EXCEEDED',
+          message: `Maximum ${maxQtyLimit} items allowed`
+        });
+        continue;
       }
 
       // Build order item with denormalized data
@@ -116,11 +135,22 @@ export const createOrder = async (req, res) => {
         variantSku: inv.variant.sku,
         packSize: inv.variant.packSize,
         handling: inv.variant.handling || { fragile: false, cold: false, heavy: false },
-        deliveryInstructions: [], // Can be populated from checkout request later
-        quantity: item.quantity,
+        deliveryInstructions: [],
+        quantity: requestedQty,
         unitPrice: inv.pricing.sellingPrice,
         unitMrp: inv.pricing.mrp,
-        totalPrice: inv.pricing.sellingPrice * item.quantity
+        totalPrice: inv.pricing.sellingPrice * requestedQty
+      });
+    }
+
+    if (stockIssues.length > 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(409).json({
+        success: false,
+        error: 'STOCK_CHANGED',
+        message: 'Some items in your cart have updated availability',
+        issues: stockIssues
       });
     }
 
@@ -190,15 +220,24 @@ export const createOrder = async (req, res) => {
       newOrder.cgst = Number((taxableBase * (activeTax.cgst / 100)).toFixed(2));
     }
 
-    const savedOrder = await newOrder.save();
+    const savedOrder = await newOrder.save({ session });
 
-    // PHASE 1: Reserve stock for each item (don't deduct yet)
-    // Stock will be deducted when order is picked up by delivery partner
+    // PHASE 1: Reserve stock for each item
+    // Since we are in a transaction, this is atomic
     for (const item of items) {
-      await Inventory.findByIdAndUpdate(item.inventoryId, {
-        $inc: { reservedStock: item.quantity }
-      });
+      const updatedInv = await Inventory.findByIdAndUpdate(
+        item.inventoryId,
+        { $inc: { stock: -item.quantity, reservedStock: item.quantity } }, // Immediate stock deduction from "available" view
+        { session, new: true }
+      );
+
+      if (!updatedInv || updatedInv.stock < 0) {
+        throw new Error(`Concurrency error: Stock depleted for ${item.inventoryId}`);
+      }
     }
+
+    await session.commitTransaction();
+    session.endSession();
 
     // Populate for socket and response
     const populatedOrder = await Order.findById(savedOrder._id)
@@ -228,8 +267,12 @@ export const createOrder = async (req, res) => {
       order: populatedOrder
     });
   } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    session.endSession();
     console.error("Create order error:", error);
-    return res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({ message: error.message || "Internal server error" });
   }
 };
 
@@ -548,7 +591,7 @@ export const deletePendingOrder = async (req, res) => {
       if (item.inventory) {
         const updatedInventory = await Inventory.findByIdAndUpdate(
           item.inventory,
-          { $inc: { reservedStock: -item.quantity } },
+          { $inc: { stock: item.quantity, reservedStock: -item.quantity } },
           { new: true }
         );
 
@@ -755,27 +798,13 @@ export const pickupOrder = async (req, res) => {
 
     await order.save({ validateModifiedOnly: true });
 
-    // PHASE 2: Deduct actual stock from inventory (order picked up)
-    // This is where inventory is actually reduced - when items leave the store
+    // PHASE 2: Clear reserved stock (already deducted from stock in createOrder)
     for (const item of order.items) {
       if (item.inventory) {
-        const updatedInventory = await Inventory.findByIdAndUpdate(
+        await Inventory.findByIdAndUpdate(
           item.inventory,
-          {
-            $inc: {
-              stock: -item.quantity,      // Deduct from actual stock
-              reservedStock: -item.quantity  // Clear from reserved
-            }
-          },
-          { new: true }
+          { $inc: { reservedStock: -item.quantity } }
         );
-
-        // Mark unavailable if stock is depleted
-        if (updatedInventory && updatedInventory.stock <= 0) {
-          await Inventory.findByIdAndUpdate(item.inventory, {
-            isAvailable: false
-          });
-        }
       }
     }
 

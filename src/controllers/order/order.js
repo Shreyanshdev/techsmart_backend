@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Customer, DeliveryPartner } from "../../models/user.js";
 import Branch from "../../models/branch.js";
 import Order from "../../models/order.js";
@@ -1137,7 +1138,12 @@ export const updateDeliveryPartnerLocation = async (req, res) => {
       return res.status(403).json({ message: "Only assigned delivery partner can update location" });
     }
 
-    // Update order location with additional metadata
+    // Check if we should skip saving to DB (throttle writes to every 5 seconds)
+    const lastUpdate = order.updatedAt ? new Date(order.updatedAt).getTime() : 0;
+    const timeSinceLastUpdate = Date.now() - lastUpdate;
+    const shouldSave = timeSinceLastUpdate > 5000 || routeData;
+
+    // Update in-memory object for location
     order.deliveryPersonLocation = {
       ...location,
       timestamp: new Date(),
@@ -1157,7 +1163,12 @@ export const updateDeliveryPartnerLocation = async (req, res) => {
       };
     }
 
-    await order.save();
+    if (shouldSave) {
+      await order.save();
+      // console.log(`💾 Saved location to DB for order ${orderId} (Throttle: ${timeSinceLastUpdate}ms)`);
+    } else {
+      // console.log(`⏩ Skipped DB save for order ${orderId} (Throttle: ${timeSinceLastUpdate}ms)`);
+    }
 
     // Calculate ETA based on current location and route
     let eta = null;

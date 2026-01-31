@@ -208,13 +208,19 @@ export const getBranchByPincode = async (req, res) => {
 
         if (!nearestBranch) {
             nearestBranch = branches[0];
+            shortestDistance = Infinity;
         }
+
+        const deliveryRadiusKm = nearestBranch.deliveryRadiusKm || 30;
+        const isWithinRadius = shortestDistance !== Infinity && shortestDistance <= deliveryRadiusKm;
 
         return res.status(200).json({
             success: true,
             branch: nearestBranch,
             distance: shortestDistance !== Infinity ? shortestDistance : null,
-            pincode
+            pincode,
+            deliveryRadiusKm,
+            isWithinRadius
         });
     } catch (error) {
         console.error("Error finding branch by pincode:", error);
@@ -251,4 +257,6 @@ export const getDefaultBranch = async (req, res) => {
         });
     }
 };
+
+
 

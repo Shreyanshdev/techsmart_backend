@@ -248,22 +248,15 @@ export const getProductByCategoryId = async (req, res) => {
             });
         }
 
-        // Fallback: no branch - return products without inventory
-        const products = await Product.find({ category: categoryId, isActive: true })
-            .populate('category', 'name')
-            .sort({ [sort]: sortOrder })
-            .skip(skip)
-            .limit(intLimit);
-        const total = await Product.countDocuments({ category: categoryId, isActive: true });
-
+        // NO BRANCH FOUND: Return empty list
         return res.status(200).json({
-            products,
+            products: [],
             pagination: {
                 currentPage: parseInt(page),
-                totalPages: Math.ceil(total / intLimit),
-                totalProducts: total,
-                hasNext: parseInt(page) < Math.ceil(total / intLimit),
-                hasPrev: parseInt(page) > 1
+                totalPages: 0,
+                totalProducts: 0,
+                hasNext: false,
+                hasPrev: false
             }
         });
     } catch (error) {
@@ -294,6 +287,20 @@ export const getAllProducts = async (req, res) => {
         const filter = { isActive: true };
 
         if (brand) filter.brand = new RegExp(brand, 'i');
+
+        // If no branch, return empty immediately
+        if (!effectiveBranchId) {
+            return res.status(200).json({
+                products: [],
+                pagination: {
+                    currentPage: parseInt(page),
+                    totalPages: 0,
+                    totalProducts: 0,
+                    hasNext: false,
+                    hasPrev: false
+                }
+            });
+        }
 
         let query = Product.find(filter)
             .populate('category', 'name')
@@ -550,34 +557,15 @@ export const searchProducts = async (req, res) => {
             });
         }
 
-        // Fallback: no branch - return products without inventory (original behavior)
-        let filter = { isActive: true };
-        if (q) {
-            filter.$text = { $search: q };
-        }
-        if (tags) {
-            const tagArray = tags.split(',').map(tag => tag.trim().toLowerCase());
-            filter.tags = { $in: tagArray };
-        }
-        if (category) {
-            filter.category = category;
-        }
-
-        const products = await Product.find(filter)
-            .populate('category', 'name')
-            .sort(q ? { score: { $meta: 'textScore' } } : { [sort]: sortOrder })
-            .skip(skip)
-            .limit(intLimit);
-        const total = await Product.countDocuments(filter);
-
+        // NO BRANCH FOUND: Return empty list
         return res.status(200).json({
-            products,
+            products: [],
             pagination: {
                 currentPage: parseInt(page),
-                totalPages: Math.ceil(total / intLimit),
-                totalProducts: total,
-                hasNext: parseInt(page) < Math.ceil(total / intLimit),
-                hasPrev: parseInt(page) > 1
+                totalPages: 0,
+                totalProducts: 0,
+                hasNext: false,
+                hasPrev: false
             }
         });
     } catch (error) {
@@ -692,39 +680,15 @@ export const getRelatedProducts = async (req, res) => {
             });
         }
 
-        // Fallback: no branch - return products without inventory
-        const manualIds = (product.relatedProducts || []).filter(id => id.toString() !== productId);
-        const categoryRelated = await Product.find({
-            $or: [
-                { _id: { $in: manualIds } },
-                { category: product.category },
-                { brand: product.brand }
-            ],
-            _id: { $ne: productId },
-            isActive: true
-        })
-            .populate('category', 'name')
-            .skip(skip)
-            .limit(intLimit);
-
-        const total = await Product.countDocuments({
-            $or: [
-                { _id: { $in: manualIds } },
-                { category: product.category },
-                { brand: product.brand }
-            ],
-            _id: { $ne: productId },
-            isActive: true
-        });
-
+        // NO BRANCH FOUND: Return empty list
         return res.status(200).json({
-            products: categoryRelated,
+            products: [],
             pagination: {
                 currentPage: intPage,
-                totalPages: Math.ceil(total / intLimit),
-                totalProducts: total,
-                hasNext: intPage < Math.ceil(total / intLimit),
-                hasPrev: intPage > 1
+                totalPages: 0,
+                totalProducts: 0,
+                hasNext: false,
+                hasPrev: false
             }
         });
     } catch (error) {
@@ -811,31 +775,17 @@ export const getProductsByBrand = async (req, res) => {
             });
         }
 
-        // Fallback: no branch - return products without inventory
-        const products = await Product.find({
-            brand: { $regex: new RegExp(`^${brandName}$`, 'i') },
-            isActive: true
-        })
-            .populate('category', 'name')
-            .skip(skip)
-            .limit(intLimit);
 
-        const total = await Product.countDocuments({
-            brand: { $regex: new RegExp(`^${brandName}$`, 'i') },
-            isActive: true
-        });
 
+        // NO BRANCH FOUND: Return empty list
         return res.status(200).json({
             brand: brandName,
-            products,
-            pagination: {
-                currentPage: intPage,
-                totalPages: Math.ceil(total / intLimit),
-                totalProducts: total,
-                hasNext: intPage < Math.ceil(total / intLimit),
-                hasPrev: intPage > 1
-            }
+            products: [],
+            nextCursor: null,
+            hasMore: false,
+            count: 0
         });
+
     } catch (error) {
         console.error("Error fetching products by brand:", error);
         return res.status(500).json({ message: "Internal server error" });

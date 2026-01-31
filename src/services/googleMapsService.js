@@ -1,4 +1,5 @@
 // Using built-in fetch (Node.js 18+)
+import NodeCache from 'node-cache';
 
 export class GoogleMapsService {
   constructor() {
@@ -14,6 +15,9 @@ export class GoogleMapsService {
     } else {
       console.log('✅ Google Maps API Key loaded successfully');
     }
+
+    // Initialize cache for directions (60 second TTL)
+    this.directionsCache = new NodeCache({ stdTTL: 60, checkperiod: 120 });
   }
 
   // Rate limiting for Google Maps API (free tier limit: 40,000 requests per month)
@@ -78,6 +82,14 @@ export class GoogleMapsService {
         throw new Error('Origin and destination are required');
       }
 
+      // Check cache first
+      const cacheKey = `dirs:${origin.latitude},${origin.longitude}:${destination.latitude},${destination.longitude}:${options.mode || 'driving'}:${options.traffic ? 'traffic' : 'no-traffic'}`;
+      const cachedData = this.directionsCache.get(cacheKey);
+      if (cachedData) {
+        console.log('⚡ Using cached directions for key:', cacheKey);
+        return cachedData;
+      }
+
       // Check rate limit before making request
       await this.checkRateLimit();
 
@@ -140,6 +152,9 @@ export class GoogleMapsService {
           duration: routeData.duration?.text,
           coordinates: routeData.coordinates?.length
         });
+
+        // Cache the successful response
+        this.directionsCache.set(cacheKey, routeData);
 
         return routeData;
       } else if (data.status === 'ZERO_RESULTS') {

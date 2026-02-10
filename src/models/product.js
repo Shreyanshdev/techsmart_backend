@@ -43,10 +43,10 @@ const productSchema = new mongoose.Schema({
         index: true
     },
     subCategory: {
-        type: String,
-        trim: true,
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "SubCategory",
         index: true,
-        description: "Sub-category (e.g., Sunflower Oil, Toned Milk)"
+        description: "Reference to SubCategory"
     },
 
     // Descriptions

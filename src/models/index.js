@@ -3,6 +3,7 @@ import Branch from "./branch.js";
 import Order from "./order.js";
 import Product from "./product.js";
 import Category from "./category.js";
+import SubCategory from "./subcategory.js";
 import Counter from "./counter.js";
 import Address from "./address.js";
 import Feedback from "./Feedback.js";
@@ -19,6 +20,7 @@ export {
     Order,
     Product,
     Category,
+    SubCategory,
     Counter,
     Address,
     Feedback,

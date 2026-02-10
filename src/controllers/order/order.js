@@ -243,7 +243,7 @@ export const createOrder = async (req, res) => {
     // Populate for socket and response
     const populatedOrder = await Order.findById(savedOrder._id)
       .populate('customer', 'name phone address')
-      .populate('branch', 'name address city')
+      .populate('branch', 'name address city location lat lng')
       .populate('items.inventory');
 
     // Emit event to delivery partners
@@ -507,7 +507,7 @@ export const getOrders = async (req, res) => {
 
     const orders = await Order.find(filter)
       .populate('customer', 'name phone address')
-      .populate('branch', 'name address')
+      .populate('branch', 'name address location lat lng')
       .populate('deliveryPartner', 'name phone')
       .populate('items.inventory')
       .sort({ createdAt: -1 });
@@ -750,14 +750,20 @@ export const acceptOrder = async (req, res) => {
 
     await order.save({ validateModifiedOnly: true });
 
+    // Populate for response
+    const populatedOrder = await Order.findById(order._id)
+      .populate('customer', 'name phone address')
+      .populate('branch', 'name address location lat lng')
+      .populate('items.inventory');
+
     // Emit socket event for real-time updates
     req.app.get('io').to(`branch-${order.branch}`).emit('orderAcceptedByOther', orderId);
-    req.app.get('io').to(orderId).emit('orderStatusUpdated', order);
-    req.app.get('io').to(orderId).emit('orderUpdated', order);
+    req.app.get('io').to(orderId).emit('orderStatusUpdated', populatedOrder);
+    req.app.get('io').to(orderId).emit('orderUpdated', populatedOrder);
 
     return res.status(200).json({
       message: "Order accepted successfully",
-      order: order
+      order: populatedOrder
     });
   } catch (error) {
     console.error("Accept order error:", error);
@@ -889,6 +895,45 @@ export const markOrderAsDelivered = async (req, res) => {
   }
 };
 
+// Helper function to calculate distance between two coordinates (Haversine formula)
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Radius of Earth in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c; // Distance in km
+  return distance;
+};
+
+// Helper to ensure routeData always has distance/duration
+const getRouteData = (orderObj) => {
+  // Check if it's a valid routeData from Google Maps (has distance and duration)
+  if (orderObj.routeData &&
+    orderObj.routeData.distance &&
+    orderObj.routeData.distance.text &&
+    orderObj.routeData.duration) {
+    return orderObj.routeData;
+  }
+
+  // Fallback to calculated distance
+  return {
+    distance: {
+      text: `${calculateDistance(
+        orderObj.branch?.lat || orderObj.branch?.location?.latitude || (orderObj.branch?.location?.coordinates ? orderObj.branch.location.coordinates[1] : 0),
+        orderObj.branch?.lng || orderObj.branch?.location?.longitude || (orderObj.branch?.location?.coordinates ? orderObj.branch.location.coordinates[0] : 0),
+        orderObj.deliveryLocation?.latitude || 0,
+        orderObj.deliveryLocation?.longitude || 0
+      ).toFixed(1)} km`,
+      value: 0
+    },
+    duration: { text: "...", value: 0 }
+  };
+};
+
 // Get available orders for delivery partners by branch ID
 export const getAvailableOrders = async (req, res) => {
   try {
@@ -899,13 +944,7 @@ export const getAvailableOrders = async (req, res) => {
     }
 
     // Debug: Check all orders for this branch first
-    const allBranchOrders = await Order.find({ branch: branchId });
-    console.log(`🔍 All orders for branch ${branchId}:`, allBranchOrders.map(order => ({
-      _id: order._id,
-      status: order.status,
-      deliveryPartner: order.deliveryPartner,
-      createdAt: order.createdAt
-    })));
+    // const allBranchOrders = await Order.find({ branch: branchId });
 
     // Find all pending orders from this branch that are not assigned to any delivery partner
     const availableOrders = await Order.find({
@@ -917,7 +956,7 @@ export const getAvailableOrders = async (req, res) => {
       ]
     })
       .populate('customer', 'name phone address')
-      .populate('branch', 'name address')
+      .populate('branch', 'name address location lat lng')
       .populate('items.inventory')
       .sort({ createdAt: -1 });
 
@@ -941,6 +980,7 @@ export const getAvailableOrders = async (req, res) => {
         },
         deliveryLocation: orderObj.deliveryLocation,
         pickupLocation: orderObj.pickupLocation,
+        routeData: getRouteData(orderObj),
         itemCount: orderObj.items?.reduce((sum, item) => sum + (item.quantity || item.count || 0), 0) || 0,
         totalPrice: orderObj.totalPrice,
         deliveryFee: orderObj.deliveryFee,
@@ -984,29 +1024,12 @@ export const getCurrentOrders = async (req, res) => {
       status: { $in: ['accepted', 'in-progress', 'awaitconfirmation'] }
     })
       .populate('customer', 'name phone address')
-      .populate('branch', 'name address')
+      .populate('branch', 'name address location lat lng')
       .populate('deliveryPartner', 'name phone')
       .populate('items.inventory')
       .sort({ createdAt: -1 });
 
     console.log(`Found ${currentOrders.length} current orders for delivery partner: ${deliveryPartnerId}`);
-
-    // Debug: Log items structure to see if population is working
-    currentOrders.forEach((order, orderIndex) => {
-      console.log(`🔍 Order ${orderIndex} (${order._id}):`);
-      order.items.forEach((item, itemIndex) => {
-        console.log(`  Item ${itemIndex}:`, {
-          id: item.id,
-          itemName: item.item,
-          count: item.count,
-          populatedProduct: item.id ? {
-            name: item.id.name,
-            price: item.id.price,
-            image: item.id.image
-          } : 'NOT POPULATED'
-        });
-      });
-    });
 
     const orders = currentOrders.map(order => {
       const orderObj = order.toObject();
@@ -1027,6 +1050,8 @@ export const getCurrentOrders = async (req, res) => {
         },
         deliveryLocation: orderObj.deliveryLocation,
         pickupLocation: orderObj.pickupLocation,
+        routeData: orderObj.routeData,
+        items: orderObj.items,
         itemCount: orderObj.items?.reduce((sum, item) => sum + (item.quantity || item.count || 0), 0) || 0,
         totalPrice: orderObj.totalPrice,
         deliveryFee: orderObj.deliveryFee,
@@ -1098,6 +1123,7 @@ export const getHistoryOrders = async (req, res) => {
         },
         deliveryLocation: orderObj.deliveryLocation,
         pickupLocation: orderObj.pickupLocation,
+        routeData: orderObj.routeData,
         items: orderObj.items,
         itemCount: orderObj.items?.reduce((sum, item) => sum + (item.quantity || item.count || 0), 0) || 0,
         totalPrice: orderObj.totalPrice,
@@ -1395,19 +1421,6 @@ export const getGoogleMapsDirections = async (req, res) => {
   }
 };
 
-// Helper function to calculate distance between two points
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Radius of the Earth in kilometers
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c; // Distance in kilometers
-  return distance;
-};
 
 // Cancel order with proper socket cleanup
 export const cancelOrder = async (req, res) => {
@@ -1522,7 +1535,7 @@ export const getOrderInvoice = async (req, res) => {
 
     const order = await Order.findById(orderId)
       .populate('customer', 'name phone email')
-      .populate('branch', 'name address phone')
+      .populate('branch', 'name address phone location lat lng')
       .populate('deliveryPartner', 'name phone')
       .populate('items.inventory');
 
@@ -1681,8 +1694,8 @@ export const collectCodPayment = async (req, res) => {
       return res.status(404).json({ message: "Order not found" });
     }
 
-    if (order.status !== 'delivered') {
-      return res.status(400).json({ message: "Order must be marked as delivered before collecting payment" });
+    if (order.status !== 'in-progress' && order.status !== 'delivered') {
+      return res.status(400).json({ message: "Order must be in-progress or delivered before collecting payment" });
     }
 
     if (order.paymentDetails.paymentMethod !== 'cod') {

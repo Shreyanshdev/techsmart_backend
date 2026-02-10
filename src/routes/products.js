@@ -2,6 +2,14 @@ import express from 'express';
 import { verifyToken } from '../middleware/auth.js';
 import { getAllCategories } from "../controllers/product/category.js";
 import {
+    getAllSubCategories,
+    getSubCategoriesByCategory,
+    getSubCategoriesGrouped,
+    createSubCategory,
+    updateSubCategory,
+    deleteSubCategory
+} from "../controllers/product/subcategory.js";
+import {
     getProductByCategoryId,
     getAllProducts,
     getProductById,
@@ -35,6 +43,14 @@ router.get("/brand/:brandName", getProductsByBrand);
 // Category routes (must come before /:productId)
 router.get("/categories", getAllCategories);
 router.get("/category/:categoryId", getProductByCategoryId);
+
+// Subcategory routes
+router.get("/subcategories", getAllSubCategories);
+router.get("/subcategories/grouped", getSubCategoriesGrouped);
+router.get("/subcategories/:categoryId", getSubCategoriesByCategory);
+router.post("/subcategories", verifyToken, createSubCategory);
+router.put("/subcategories/:subcategoryId", verifyToken, updateSubCategory);
+router.delete("/subcategories/:subcategoryId", verifyToken, deleteSubCategory);
 
 // Branch-specific products
 router.get("/branch/:branchId", getBranchProducts);

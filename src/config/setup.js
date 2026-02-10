@@ -141,6 +141,13 @@ export const admin = new AdminJS({
 
     // --- CATALOG ---
     {
+      resource: Models.SubCategory,
+      options: {
+        listProperties: ['name', 'image'],
+        navigation: { name: 'Catalog', icon: 'Tag' }
+      }
+    },
+    {
       resource: Models.Product,
       options: {
         listProperties: ['name', 'category', 'brand', 'isActive'],

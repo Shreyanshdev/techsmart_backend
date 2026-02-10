@@ -35,6 +35,7 @@ export const getProductsFeed = async (req, res) => {
         limit = 20,
         cursor,
         category,
+        subcategory,
         brand
     } = req.query;
 
@@ -84,8 +85,16 @@ export const getProductsFeed = async (req, res) => {
             { $match: { 'productData.isActive': true } },
         ];
 
+        // Subcategory filter (takes precedence over category)
+        if (subcategory) {
+            if (mongoose.Types.ObjectId.isValid(subcategory)) {
+                inventoryAggregation.push({
+                    $match: { 'productData.subCategory': new mongoose.Types.ObjectId(subcategory) }
+                });
+            }
+        }
         // Category filter
-        if (category) {
+        else if (category) {
             if (mongoose.Types.ObjectId.isValid(category)) {
                 inventoryAggregation.push({
                     $match: { 'productData.category': new mongoose.Types.ObjectId(category) }
@@ -94,10 +103,7 @@ export const getProductsFeed = async (req, res) => {
                 // Support category by name/slug if needed (optional)
                 inventoryAggregation.push({
                     $match: {
-                        $or: [
-                            { 'productData.categoryName': { $regex: category, $options: 'i' } },
-                            { 'productData.subCategory': { $regex: category, $options: 'i' } }
-                        ]
+                        'productData.categoryName': { $regex: category, $options: 'i' }
                     }
                 });
             }

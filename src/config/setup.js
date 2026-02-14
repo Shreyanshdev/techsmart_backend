@@ -7,8 +7,48 @@ import { dark, light, noSidebar } from "@adminjs/themes";
 import { Admin } from "../models/user.js";
 import { componentLoader, Components } from "./component-loader.js";
 import bcrypt from "bcrypt";
+import uploadFeature from "@adminjs/upload";
+import CloudinaryProvider, { uploadCache } from "../utils/cloudinary-provider.js";
 
 AdminJS.registerAdapter(AdminJSMongoose);
+
+const cloudinaryProvider = new CloudinaryProvider();
+
+/**
+ * Helper to ensure Cloudinary URLs are saved to the DB instead of relative keys.
+ * AdminJS @adminjs/upload feature ignores provider return values, so we sync it here.
+ */
+const syncCloudinaryUrl = async (response, request, context) => {
+  const { record } = response;
+  if (!record || !record.params) return response;
+
+  let hasUpdates = false;
+  const newParams = { ...record.params };
+
+  Object.keys(newParams).forEach(key => {
+    const value = newParams[key];
+
+    // Handle single fields (Category/SubCategory)
+    if (typeof value === 'string' && uploadCache.has(value)) {
+      newParams[key] = uploadCache.get(value);
+      hasUpdates = true;
+    }
+
+    // Handle multiple fields (Product/Inventory arrays)
+    // AdminJS uses keys like images.0, images.1
+    if (key.match(/\.?images\.\d+$/) && typeof value === 'string' && uploadCache.has(value)) {
+      newParams[key] = uploadCache.get(value);
+      hasUpdates = true;
+    }
+  });
+
+  if (hasUpdates) {
+    const updatedRecord = await context.resource.update(record.id, newParams);
+    // Refresh the record in the response so the UI shows the new URL immediately
+    response.record.params = updatedRecord.params;
+  }
+  return response;
+};
 
 // Common action configuration for invoices
 const downloadInvoiceAction = {
@@ -144,31 +184,119 @@ export const admin = new AdminJS({
       resource: Models.SubCategory,
       options: {
         listProperties: ['name', 'image'],
-        navigation: { name: 'Catalog', icon: 'Tag' }
-      }
+        navigation: { name: 'Catalog', icon: 'Tag' },
+        properties: {
+          image: { isVisible: { list: true, show: true, edit: false, filter: false } },
+          uploadImage: { isVisible: { list: false, show: false, edit: true, filter: false } }
+        },
+        actions: {
+          new: { after: [syncCloudinaryUrl] },
+          edit: { after: [syncCloudinaryUrl] }
+        }
+      },
+      features: [
+        uploadFeature({
+          componentLoader,
+          provider: cloudinaryProvider,
+          properties: {
+            key: 'image',
+            file: 'uploadImage',
+          },
+          validation: { mimeTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'] },
+        }),
+      ],
     },
     {
       resource: Models.Product,
       options: {
         listProperties: ['name', 'category', 'brand', 'isActive'],
         filterProperties: ['category', 'brand', 'isActive'],
-        navigation: { name: 'Catalog', icon: 'Box' }
-      }
+        navigation: { name: 'Catalog', icon: 'Box' },
+        properties: {
+          images: { isVisible: { list: true, show: true, edit: false, filter: false } },
+          uploadImages: { isVisible: { list: false, show: false, edit: true, filter: false } }
+        },
+        actions: {
+          new: { after: [syncCloudinaryUrl] },
+          edit: {
+            after: [async (response) => {
+              console.log('[Product Debug] Final saved images:', response.record.params.images);
+              return response;
+            }, syncCloudinaryUrl]
+          }
+        }
+      },
+      features: [
+        uploadFeature({
+          componentLoader,
+          provider: cloudinaryProvider,
+          properties: {
+            key: 'images',
+            file: 'uploadImages',
+          },
+          multiple: true,
+          validation: { mimeTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'] },
+        }),
+      ],
     },
     {
       resource: Models.Category,
       options: {
         listProperties: ['name', 'image'],
-        navigation: { name: 'Catalog', icon: 'Tag' }
-      }
+        navigation: { name: 'Catalog', icon: 'Tag' },
+        properties: {
+          image: { isVisible: { list: true, show: true, edit: false, filter: false } },
+          uploadImage: { isVisible: { list: false, show: false, edit: true, filter: false } }
+        },
+        actions: {
+          new: { after: [syncCloudinaryUrl] },
+          edit: { after: [syncCloudinaryUrl] }
+        }
+      },
+      features: [
+        uploadFeature({
+          componentLoader,
+          provider: cloudinaryProvider,
+          properties: {
+            key: 'image',
+            file: 'uploadImage',
+          },
+          validation: { mimeTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'] },
+        }),
+      ],
     },
     {
       resource: Models.Inventory,
       options: {
         listProperties: ['product', 'branch', 'stock', 'isAvailable', 'pricing.sellingPrice'],
         filterProperties: ['branch', 'product', 'isAvailable'],
-        navigation: { name: 'Catalog', icon: 'Database' }
-      }
+        navigation: { name: 'Catalog', icon: 'Database' },
+        properties: {
+          'variant.images': { isVisible: { list: true, show: true, edit: false, filter: false } },
+          uploadVariantImages: { isVisible: { list: false, show: false, edit: true, filter: false } }
+        },
+        actions: {
+          new: { after: [syncCloudinaryUrl] },
+          edit: {
+            after: [async (response) => {
+              console.log('[Inventory Debug] Final saved images:', response.record.params['variant.images']);
+              return response;
+            }, syncCloudinaryUrl]
+          }
+        }
+      },
+      features: [
+        uploadFeature({
+          componentLoader,
+          provider: cloudinaryProvider,
+          properties: {
+            key: 'variant.images',
+            file: 'uploadVariantImages',
+          },
+          multiple: true,
+          validation: { mimeTypes: ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'] },
+        }),
+      ],
     },
 
     // --- OPERATIONS ---

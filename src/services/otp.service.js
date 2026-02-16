@@ -16,6 +16,8 @@ export const otpService = {
      * @returns {Promise<{verificationId: string}>}
      */
     sendOtp: async (phone) => {
+        // Commenting out Message Central implementation for testing
+        /*
         try {
             const response = await axios.post(`${BASE_URL}/verification/v3/send`, null, {
                 params: {
@@ -39,6 +41,12 @@ export const otpService = {
             console.error('OTP Send Error:', error.response?.data || error.message);
             throw new Error('Failed to send OTP via Message Central');
         }
+        */
+
+        console.log(`[TEST MODE] Simulating OTP send to ${phone}. Use 1234 to verify.`);
+        return {
+            verificationId: `test_id_${Date.now()}`
+        };
     },
 
     /**
@@ -49,6 +57,8 @@ export const otpService = {
      * @returns {Promise<boolean>}
      */
     verifyOtp: async (phone, verificationId, code) => {
+        // Commenting out Message Central implementation for testing
+        /*
         try {
             const response = await axios.get(`${BASE_URL}/verification/v3/validateOtp`, {
                 params: {
@@ -72,5 +82,9 @@ export const otpService = {
             console.error('OTP Verify Error:', error.response?.data || error.message);
             return false;
         }
+        */
+
+        console.log(`[TEST MODE] Verifying OTP ${code} for ${phone}`);
+        return code === '1234';
     }
 };

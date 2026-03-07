@@ -13,6 +13,7 @@ import reviewRoutes from './review.js';
 import taxRoutes from './tax.js';
 import couponRoutes from './coupon.js';
 import bannerRoutes from './banner.js';
+import homeLayoutRoutes from './homeLayout.js';
 
 const router = express.Router();
 
@@ -31,5 +32,6 @@ export const registerRoutes = (app) => {
     app.use('/api/v1/feedback', feedbackRoutes);
     app.use('/api/v1/coupons', couponRoutes);
     app.use('/api/v1/banners', bannerRoutes);
+    app.use('/api/v1/home-layout', homeLayoutRoutes);
     app.use('/api/v1', profileRoutes); // Broad match last
 };

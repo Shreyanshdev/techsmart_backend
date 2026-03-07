@@ -15,7 +15,7 @@ const couponSchema = new mongoose.Schema({
     },
     discountType: {
         type: String,
-        enum: ["percentage", "fixed"],
+        enum: ["percentage", "fixed", "FREE_DELIVERY"],
         required: true
     },
     discountValue: {
@@ -133,13 +133,17 @@ couponSchema.methods.calculateDiscount = function (cartTotal) {
         if (this.maxDiscountAmount !== null && discount > this.maxDiscountAmount) {
             discount = this.maxDiscountAmount;
         }
-    } else {
+    } else if (this.discountType === "fixed") {
         // Fixed discount
         discount = this.discountValue;
         // Don't exceed cart total
         if (discount > cartTotal) {
             discount = cartTotal;
         }
+    } else if (this.discountType === "FREE_DELIVERY") {
+        // For FREE_DELIVERY the product discount is technically 0,
+        // The frontend uses the type flag to zero out the delivery fee separately.
+        discount = 0;
     }
 
     return Math.round(discount * 100) / 100; // Round to 2 decimal places

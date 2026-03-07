@@ -422,6 +422,13 @@ export const updateCartItemQuantity = async (req, res) => {
             });
         }
 
+        if (!mongoose.Types.ObjectId.isValid(inventoryId)) {
+            return res.status(400).json({
+                success: false,
+                error: "Invalid inventoryId format"
+            });
+        }
+
         const inv = await Inventory.findById(inventoryId).populate('product', 'name');
         if (!inv) {
             return res.status(404).json({
@@ -486,7 +493,10 @@ export const validateCartStock = async (req, res) => {
         }
 
         // Get all inventory items in one query
-        const inventoryIds = items.map(item => item.inventoryId);
+        const inventoryIds = items
+            .map(item => item.inventoryId)
+            .filter(id => mongoose.Types.ObjectId.isValid(id));
+
         const inventoryItems = await Inventory.find({ _id: { $in: inventoryIds } })
             .populate('product', 'name brand images')
             .lean();

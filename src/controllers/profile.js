@@ -71,7 +71,18 @@ export const toggleWishlist = async (req, res) => {
   try {
     const userId = req.user._id;
     const { productId, inventoryId } = req.body;
-    const itemToToggle = inventoryId || productId;
+    let itemToToggle = inventoryId || productId;
+
+    // Fix BSON CastError: if it's an "INV_" string, find the actual Mongo ObjectId
+    if (typeof itemToToggle === 'string' && itemToToggle.startsWith('INV_')) {
+      const inventory = await Inventory.findOne({ inventoryId: itemToToggle });
+      if (inventory) {
+        itemToToggle = inventory._id.toString();
+      } else {
+        // Fallback to productId if inventory string is invalid
+        itemToToggle = productId;
+      }
+    }
 
     const user = await Customer.findById(userId);
     if (!user) {

@@ -36,7 +36,9 @@ export const getProductsFeed = async (req, res) => {
         cursor,
         category,
         subcategory,
-        brand
+        brand,
+        searchQuery,
+        discountGreaterThan
     } = req.query;
 
     const effectiveBranchId = branchId || branchQuery;
@@ -114,6 +116,32 @@ export const getProductsFeed = async (req, res) => {
             inventoryAggregation.push({
                 $match: { 'productData.brand': { $regex: new RegExp(`^${brand}$`, 'i') } }
             });
+        }
+
+        // Search query filter (e.g. for "sugar")
+        if (searchQuery) {
+            inventoryAggregation.push({
+                $match: { 'productData.name': { $regex: searchQuery, $options: 'i' } }
+            });
+        }
+
+        // Discount filter for "Hot Deals" / Sale sections
+        if (discountGreaterThan !== undefined) {
+            const minDiscount = parseFloat(discountGreaterThan);
+            if (!isNaN(minDiscount) && minDiscount > 0) {
+                // Approximate discount check: ((mrp - sellingPrice) / mrp) * 100 > minDiscount
+                // Equivalent to: sellingPrice < mrp * (1 - minDiscount/100)
+                inventoryAggregation.push({
+                    $match: {
+                        $expr: {
+                            $lt: [
+                                '$pricing.sellingPrice',
+                                { $multiply: ['$pricing.mrp', 1 - (minDiscount / 100)] }
+                            ]
+                        }
+                    }
+                });
+            }
         }
 
         // Sort by inventory _id for consistent cursor pagination (no grouping - flattened)

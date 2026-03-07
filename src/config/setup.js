@@ -141,6 +141,7 @@ inspectResource('Review', Models.Review, {});
 inspectResource('Coupon', Models.Coupon, { listProperties: ['code', 'discountType'] });
 inspectResource('Feedback', Models.Feedback, { listProperties: ['user', 'type'] });
 inspectResource('Tax', Models.Tax, { listProperties: ['sgst', 'cgst'] });
+inspectResource('HomeLayout', Models.HomeLayout, { listProperties: ['type', 'order', 'isActive'] });
 inspectResource('Counter', Models.Counter, { navigation: null });
 inspectResource('Address', Models.Address, { navigation: null });
 
@@ -406,6 +407,141 @@ export const admin = new AdminJS({
       resource: Models.Tax,
       options: {
         navigation: { name: 'Settings', icon: 'Settings' }
+      }
+    },
+    {
+      resource: Models.HomeLayout,
+      options: {
+        navigation: { name: 'Settings', icon: 'Layout' },
+        listProperties: ['title', 'type', 'order', 'isActive'],
+        filterProperties: ['type', 'isActive'],
+        properties: {
+          targetBranches: {
+            description: 'Leave empty to show to ALL branches. Select branches to restrict.',
+            isSortable: false
+          },
+          bannerSection: {
+            type: 'reference',
+            reference: 'BannerSection',
+            isVisible: { list: false, filter: false, show: true, edit: true }
+          },
+          productSection: {
+            type: 'reference',
+            reference: 'ProductSection',
+            isVisible: { list: false, filter: false, show: true, edit: true }
+          },
+          brandSpotlightSection: {
+            type: 'reference',
+            reference: 'BrandSpotlightSection',
+            isVisible: { list: false, filter: false, show: true, edit: true }
+          },
+          categoryShowcaseSection: {
+            type: 'reference',
+            reference: 'CategoryShowcaseSection',
+            isVisible: { list: false, filter: false, show: true, edit: true }
+          },
+          data: {
+            type: 'mixed',
+            isVisible: { list: false, filter: false, show: true, edit: true },
+            description: 'Legacy config. Prefer using the specific section references above for new content.'
+          }
+        },
+        actions: {
+        }
+      }
+    },
+    {
+      resource: Models.BannerSection,
+      options: {
+        navigation: { name: 'Marketing', icon: 'Image' },
+        listProperties: ['name', 'isCarousel', 'isActive', 'updatedAt'],
+        properties: {
+          slides: {
+            type: 'mixed',
+            isArray: true,
+            description: 'For carousel banners'
+          },
+          'slides.imageUrl': { type: 'string' },
+          'slides.actionType': {
+            type: 'string',
+            availableValues: [
+              { value: 'PRODUCT', label: 'Product' },
+              { value: 'CATEGORY', label: 'Category' },
+              { value: 'BRAND', label: 'Brand' },
+              { value: 'NONE', label: 'None' }
+            ]
+          },
+          actionType: {
+            type: 'string',
+            availableValues: [
+              { value: 'PRODUCT', label: 'Product' },
+              { value: 'CATEGORY', label: 'Category' },
+              { value: 'BRAND', label: 'Brand' },
+              { value: 'NONE', label: 'None' }
+            ]
+          }
+        }
+      }
+    },
+    {
+      resource: Models.ProductSection,
+      options: {
+        navigation: { name: 'Marketing', icon: 'ShoppingBag' },
+        listProperties: ['name', 'sectionKind', 'limit', 'isActive'],
+        properties: {
+          sectionKind: {
+            type: 'string',
+            availableValues: [
+              { value: 'TRENDING', label: 'Trending (auto)' },
+              { value: 'HOT_DEAL', label: 'Hot Deals (auto)' },
+              { value: 'NEW', label: 'New Arrivals (auto)' },
+              { value: 'SPONSORED', label: 'Sponsored / Handpicked' },
+              { value: 'CATEGORY', label: 'Category Based (auto)' }
+            ]
+          },
+          handpickedProducts: {
+            type: 'reference',
+            reference: 'Product',
+            isArray: true,
+            description: 'Use for SPONSORED; filtered by branch inventory automatically.'
+          },
+          category: {
+            type: 'reference',
+            reference: 'Category',
+            description: 'Use when sectionKind is CATEGORY.'
+          },
+          gradientColors: {
+            type: 'string',
+            isArray: true
+          }
+        }
+      }
+    },
+    {
+      resource: Models.BrandSpotlightSection,
+      options: {
+        navigation: { name: 'Marketing', icon: 'Star' },
+        listProperties: ['name', 'brandName', 'limit', 'isActive'],
+        properties: {
+          handpickedProducts: {
+            type: 'reference',
+            reference: 'Product',
+            isArray: true
+          }
+        }
+      }
+    },
+    {
+      resource: Models.CategoryShowcaseSection,
+      options: {
+        navigation: { name: 'Marketing', icon: 'Grid' },
+        listProperties: ['name', 'category', 'limit', 'isActive'],
+        properties: {
+          category: {
+            type: 'reference',
+            reference: 'Category'
+          }
+        }
       }
     },
 

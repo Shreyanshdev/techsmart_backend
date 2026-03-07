@@ -11,6 +11,11 @@ import Tax from "./tax.js";
 import Inventory from "./inventory.js";
 import Review from "./review.js";
 import { Coupon } from "./coupon.js";
+import HomeLayout from "./homeLayout.js";
+import BannerSection from "./bannerSection.js";
+import ProductSection from "./productSection.js";
+import BrandSpotlightSection from "./brandSpotlightSection.js";
+import CategoryShowcaseSection from "./categoryShowcaseSection.js";
 
 export {
     Customer,
@@ -27,5 +32,10 @@ export {
     Tax,
     Inventory,
     Review,
-    Coupon
+    Coupon,
+    HomeLayout,
+    BannerSection,
+    ProductSection,
+    BrandSpotlightSection,
+    CategoryShowcaseSection
 };

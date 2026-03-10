@@ -38,7 +38,10 @@ export const getProductsFeed = async (req, res) => {
         subcategory,
         brand,
         searchQuery,
-        discountGreaterThan
+        discountGreaterThan,
+        sort,
+        minPrice,
+        maxPrice
     } = req.query;
 
     const effectiveBranchId = branchId || branchQuery;
@@ -144,8 +147,36 @@ export const getProductsFeed = async (req, res) => {
             }
         }
 
-        // Sort by inventory _id for consistent cursor pagination (no grouping - flattened)
-        inventoryAggregation.push({ $sort: { '_id': 1 } });
+        // Price range filters
+        if (minPrice !== undefined) {
+            const min = parseFloat(minPrice);
+            if (!isNaN(min)) {
+                inventoryAggregation.push({
+                    $match: { 'pricing.sellingPrice': { $gte: min } }
+                });
+            }
+        }
+        if (maxPrice !== undefined) {
+            const max = parseFloat(maxPrice);
+            if (!isNaN(max)) {
+                inventoryAggregation.push({
+                    $match: { 'pricing.sellingPrice': { $lte: max } }
+                });
+            }
+        }
+
+        // Sort: price_asc, price_desc, newest, discount (default: _id for cursor pagination)
+        let sortStage = { '_id': 1 };
+        if (sort === 'price_asc') {
+            sortStage = { 'pricing.sellingPrice': 1, '_id': 1 };
+        } else if (sort === 'price_desc') {
+            sortStage = { 'pricing.sellingPrice': -1, '_id': 1 };
+        } else if (sort === 'newest') {
+            sortStage = { 'createdAt': -1, '_id': 1 };
+        } else if (sort === 'discount') {
+            sortStage = { 'pricing.discount': -1, '_id': 1 };
+        }
+        inventoryAggregation.push({ $sort: sortStage });
 
         // Cursor-based pagination: fetch items after cursor
         if (cursor) {
